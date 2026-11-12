@@ -39,16 +39,41 @@ function Section({ title, items }: { title: string; items: { to: string; label: 
 
 export function AdminShell() {
   const signOut = useAuth((s) => s.signOut);
+  const mobileItems = [
+    { to: "/admin", label: "Dashboard", emoji: "📊", end: true },
+    { to: "/admin/tenants", label: "Apotek", emoji: "🏢" },
+    { to: "/admin/users", label: "Pengguna", emoji: "👥" },
+    { to: "/admin/config/telegram", label: "Telegram", emoji: "✈️" },
+  ];
   return (
-    <div className="min-h-screen grid grid-cols-[260px_1fr]">
-      <aside className="bg-white border-r border-surface-100 p-4 flex flex-col overflow-y-auto">
+    <div className="min-h-screen md:grid md:grid-cols-[260px_1fr]">
+      <aside className="hidden md:flex bg-white border-r border-surface-100 p-4 flex-col overflow-y-auto">
         <div className="text-brand-600 font-bold text-lg px-2 py-3">Batam Farma · Admin</div>
+        <Section title="Platform" items={platformItems} />
         <Section title="Konfigurasi" items={configItems} />
         <Section title="Publik" items={marketplaceItems} />
 
         <button className="btn-secondary mt-auto" onClick={() => signOut()}>Keluar</button>
       </aside>
-      <main className="p-6 overflow-auto min-w-0 max-w-full"><Outlet /></main>
+
+      {/* Mobile top bar */}
+      <header className="md:hidden sticky top-0 z-30 bg-white border-b border-surface-100 px-4 py-2.5 flex items-center justify-between gap-2">
+        <div className="text-brand-600 font-bold truncate">Batam Farma · Admin</div>
+        <button className="btn-secondary px-3 py-1.5 text-sm shrink-0" onClick={() => signOut()}>Keluar</button>
+      </header>
+
+      <main className="p-4 md:p-6 pb-20 md:pb-6 overflow-auto min-w-0 max-w-full"><Outlet /></main>
+
+      {/* Mobile bottom nav */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-surface-100 grid grid-cols-4 z-30">
+        {mobileItems.map((it) => (
+          <NavLink key={it.to} to={it.to} end={it.end}
+            className={({ isActive }) => `text-xs text-center py-2 ${isActive ? "text-brand-600 font-medium" : "text-ink-500"}`}>
+            <div className="text-base">{it.emoji}</div>
+            {it.label}
+          </NavLink>
+        ))}
+      </nav>
     </div>
   );
 }

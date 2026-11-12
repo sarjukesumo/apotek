@@ -603,7 +603,7 @@ export function POS() {
   }, [total]);
 
   return (
-    <div className="grid lg:grid-cols-[1fr_400px] gap-4 h-[calc(100vh-100px)]">
+    <div className="grid lg:grid-cols-[1fr_400px] gap-4 lg:h-[calc(100vh-100px)]">
       <div className={`card lg:col-span-2 p-3 text-sm ${training ? "border-2 border-warn-500 bg-warn-50" : ""}`}>
         <div className="flex items-center justify-between gap-3">
           <strong>{training ? "LATIHAN — BUKAN TRANSAKSI NYATA" : "POS operasional"}</strong>

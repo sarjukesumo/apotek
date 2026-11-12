@@ -152,6 +152,20 @@ export function TenantShell() {
 
   return (
     <div className="min-h-screen md:grid md:grid-cols-[240px_1fr]">
+      {/* Mobile top bar */}
+      <header className="md:hidden sticky top-0 z-30 bg-white border-b border-surface-100 px-4 py-2.5 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-brand-600 font-bold truncate">{pharmacyName}</div>
+          <div className="text-[10px] text-ink-500 truncate">{claims?.role === "OWNER" ? "Owner" : claims?.role === "CASHIER" ? "Kasir" : "Staf"} · {claims?.tenantId}</div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {isAdmin && (
+            <Link to="/admin" onClick={() => exitTenant()} className="text-xs bg-warn-50 text-warn-500 border border-warn-200 rounded-md px-2 py-1.5">← Admin</Link>
+          )}
+          <button className="btn-secondary px-3 py-1.5 text-sm" onClick={() => void handleSignOut()}>Keluar</button>
+        </div>
+      </header>
+
       <aside className="bg-white border-r border-surface-100 p-4 md:flex md:flex-col hidden overflow-y-auto max-h-screen">
         <div className="text-brand-600 font-bold text-lg px-2 py-3">{pharmacyName}</div>
         {isAdmin && (
@@ -180,8 +194,11 @@ export function TenantShell() {
       </aside>
 
       {/* Mobile bottom nav */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-surface-100 grid grid-cols-6 z-30">
-        {visibleFlatItems.slice(0, 5).concat({ to: "/app/help", label: "Petunjuk", emoji: "❔" }).map((it) => (
+      <nav
+        className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-surface-100 grid z-30"
+        style={{ gridTemplateColumns: `repeat(${Math.min(visibleFlatItems.filter((it) => it.to !== "/app/help").length, 5) + 1}, minmax(0, 1fr))` }}
+      >
+        {visibleFlatItems.filter((it) => it.to !== "/app/help").slice(0, 5).concat({ to: "/app/help", label: "Petunjuk", emoji: "❔" }).map((it) => (
           <NavLink key={it.to} to={it.to} end={it.end}
             className={({ isActive }) => `text-xs text-center py-2 ${isActive ? "text-brand-600 font-medium" : "text-ink-500"}`}>
             <div className="text-base">{it.emoji}</div>
