@@ -16,8 +16,8 @@ function workbookToBuffer(workbook: XLSX.WorkBook): ArrayBuffer {
 }
 
 describe("inventory Excel import/export", () => {
-  it("produces an import template that passes the importer validation as-is", () => {
-    const csv = excelBufferToCsvText(workbookToBuffer(buildInventoryTemplateWorkbook()));
+  it("produces an import template that passes the importer validation as-is", async () => {
+    const csv = await excelBufferToCsvText(workbookToBuffer(await buildInventoryTemplateWorkbook()));
     const products = parseInventoryCsv(csv, "tenant-x", suppliers);
     expect(products).toHaveLength(2);
     expect(products[0].rxRequired).toBe(true);
@@ -25,7 +25,7 @@ describe("inventory Excel import/export", () => {
     expect(products[1].batches[0].supplierId).toBe("sup-2");
   });
 
-  it("normalizes Excel date cells to YYYY-MM-DD before parsing", () => {
+  it("normalizes Excel date cells to YYYY-MM-DD before parsing", async () => {
     const sheet = XLSX.utils.json_to_sheet([
       {
         name: "Produk Tanggal", category: "RESEP", salePrice: 1000, minStock: 0,
@@ -36,20 +36,20 @@ describe("inventory Excel import/export", () => {
     ], { header: [...INVENTORY_IMPORT_HEADERS], cellDates: true });
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, sheet, "Stok");
-    const csv = excelBufferToCsvText(workbookToBuffer(workbook));
+    const csv = await excelBufferToCsvText(workbookToBuffer(workbook));
     const products = parseInventoryCsv(csv, "tenant-x", suppliers);
     expect(products[0].batches[0].expiryISO).toBe("2027-06-30");
   });
 
-  it("round-trips an export through Excel back into identical products", () => {
+  it("round-trips an export through Excel back into identical products", async () => {
     const product: DemoProduct = {
       id: "prod-1", tenantId: "tenant-x", name: "Parasetamol 500", category: "Obat Bebas",
       price: 4000, emoji: "💊", gradient: "from-brand-100 to-accent-100", desc: "",
       unit: "strip", rxRequired: false, marketplaceEnabled: false, minStock: 10, code: "PCT500",
       batches: [{ id: "batch-1", batchNo: "A1", qty: 20, expiryISO: "2027-01-31", sourceType: "OPENING_STOCK", costPrice: 2500 }],
     };
-    const workbook = inventoryCsvToWorkbook(serializeInventoryCsv([product], true));
-    const csv = excelBufferToCsvText(workbookToBuffer(workbook));
+    const workbook = await inventoryCsvToWorkbook(serializeInventoryCsv([product], true));
+    const csv = await excelBufferToCsvText(workbookToBuffer(workbook));
     const [reimported] = parseInventoryCsv(csv, "tenant-x", suppliers);
     expect(reimported).toMatchObject({ id: "prod-1", name: "Parasetamol 500", price: 4000, code: "PCT500" });
     expect(reimported.batches[0]).toMatchObject({ id: "batch-1", batchNo: "A1", qty: 20, expiryISO: "2027-01-31", costPrice: 2500 });

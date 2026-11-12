@@ -228,13 +228,27 @@ export function Inventory() {
     }
   }
 
-  function exportExcel() {
-    const workbook = inventoryCsvToWorkbook(serializeInventoryCsv(products, canViewPurchasePrice));
-    downloadWorkbook(workbook, `stok-obat-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  async function exportExcel() {
+    setBusy(true);
+    try {
+      const workbook = await inventoryCsvToWorkbook(serializeInventoryCsv(products, canViewPurchasePrice));
+      await downloadWorkbook(workbook, `stok-obat-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch {
+      setError("Gagal menyiapkan file Excel.");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function downloadTemplate() {
-    downloadWorkbook(buildInventoryTemplateWorkbook(), "template-impor-stok.xlsx");
+  async function downloadTemplate() {
+    setBusy(true);
+    try {
+      await downloadWorkbook(await buildInventoryTemplateWorkbook(), "template-impor-stok.xlsx");
+    } catch {
+      setError("Gagal menyiapkan template Excel.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   // Registers suppliers referenced in the file (e.g. legacy PBF column) that
@@ -272,7 +286,7 @@ export function Inventory() {
     setNotice("");
     try {
       const isCsv = /\.csv$/i.test(file.name);
-      const text = isCsv ? await file.text() : excelBufferToCsvText(await file.arrayBuffer());
+      const text = isCsv ? await file.text() : await excelBufferToCsvText(await file.arrayBuffer());
       const { list: supplierList, created } = await ensureImportSuppliers(text);
       const imported = parseInventoryCsv(text, tenantId, supplierList);
       await importTenantProducts(tenantId, imported, canViewPurchasePrice);
@@ -341,8 +355,8 @@ export function Inventory() {
           <p className="text-xs text-ink-400 mt-1">Harga jual per produk · harga beli/HPP dicatat per batch.</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button onClick={exportExcel} disabled={loading || busy} className="btn-secondary">Ekspor Excel</button>
-          <button onClick={downloadTemplate} disabled={busy} className="btn-secondary">Template impor</button>
+          <button onClick={() => void exportExcel()} disabled={loading || busy} className="btn-secondary">Ekspor Excel</button>
+          <button onClick={() => void downloadTemplate()} disabled={busy} className="btn-secondary">Template impor</button>
           {canViewPurchasePrice && <button onClick={() => void migrateLegacyCosts()} disabled={loading || busy} className="btn-secondary">Migrasi data batch</button>}
           <label className={`btn-secondary cursor-pointer ${loading || busy || !tenantId ? "opacity-50 pointer-events-none" : ""}`}>
             Impor Excel

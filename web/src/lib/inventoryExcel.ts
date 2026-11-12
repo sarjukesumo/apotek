@@ -1,11 +1,17 @@
 // Excel (.xlsx) import/export for inventory, built on top of the CSV codec in
 // inventoryCsv.ts so parsing/validation stays single-sourced.
-import * as XLSX from "xlsx";
+// SheetJS is loaded on demand (dynamic import) to keep it out of the main bundle.
+import type * as XLSXType from "xlsx";
 import { INVENTORY_IMPORT_HEADERS } from "./inventoryCsv";
 
 const SHEET_NAME = "Stok";
 
-export function inventoryCsvToWorkbook(csvText: string) {
+async function loadXlsx(): Promise<typeof XLSXType> {
+  return await import("xlsx");
+}
+
+export async function inventoryCsvToWorkbook(csvText: string) {
+  const XLSX = await loadXlsx();
   const parsed = XLSX.read(csvText.replace(/^\uFEFF/, ""), { type: "string", raw: true });
   const sheet = parsed.Sheets[parsed.SheetNames[0]];
   const workbook = XLSX.utils.book_new();
@@ -13,13 +19,15 @@ export function inventoryCsvToWorkbook(csvText: string) {
   return workbook;
 }
 
-export function downloadWorkbook(workbook: XLSX.WorkBook, filename: string) {
+export async function downloadWorkbook(workbook: XLSXType.WorkBook, filename: string) {
+  const XLSX = await loadXlsx();
   XLSX.writeFile(workbook, filename, { compression: true });
 }
 
 // Converts the first worksheet to CSV text compatible with parseInventoryCsv.
 // Date cells (users often type ED as an Excel date) are normalized to YYYY-MM-DD.
-export function excelBufferToCsvText(buffer: ArrayBuffer): string {
+export async function excelBufferToCsvText(buffer: ArrayBuffer): Promise<string> {
+  const XLSX = await loadXlsx();
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   if (!sheet || !sheet["!ref"]) throw new Error("File Excel tidak berisi data.");
@@ -27,7 +35,7 @@ export function excelBufferToCsvText(buffer: ArrayBuffer): string {
   for (let row = range.s.r; row <= range.e.r; row += 1) {
     for (let column = range.s.c; column <= range.e.c; column += 1) {
       const address = XLSX.utils.encode_cell({ r: row, c: column });
-      const cell = sheet[address] as XLSX.CellObject | undefined;
+      const cell = sheet[address] as XLSXType.CellObject | undefined;
       if (cell && cell.v instanceof Date) {
         const date = cell.v;
         const iso = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -40,7 +48,8 @@ export function excelBufferToCsvText(buffer: ArrayBuffer): string {
 
 // Template with example rows matching the migration scenario (opening stock
 // with supplier + HPP) so the file passes import validation as-is.
-export function buildInventoryTemplateWorkbook() {
+export async function buildInventoryTemplateWorkbook() {
+  const XLSX = await loadXlsx();
   const exampleRows: Array<Record<string, unknown>> = [
     {
       name: "ACETIN 200 MG", category: "RESEP", salePrice: 3500, unit: "TABLET", minStock: 10,

@@ -4,6 +4,141 @@ import { useAuth } from "../../lib/auth";
 type GuidePreviewKind = "owner-access" | "staff-return" | "cashier-payment";
 type GuideSection = { title: string; steps: string[]; link?: { to: string; label: string }; preview?: GuidePreviewKind };
 
+type Tutorial = {
+  title: string;
+  image: string;
+  alt: string;
+  intro?: string;
+  steps: string[];
+  tip?: string;
+  roles: Array<"OWNER" | "STAFF" | "CASHIER">;
+  link?: { to: string; label: string };
+};
+
+const tutorials: Tutorial[] = [
+  {
+    title: "1. Membuka aplikasi dan masuk (login)",
+    image: "/guide/01-login.png",
+    alt: "Halaman login dengan kolom Username dan Password",
+    intro: "Lakukan ini setiap kali mulai bekerja.",
+    steps: [
+      "Nyalakan komputer, lalu buka browser internet (Chrome atau Edge — ikonnya bulat warna-warni atau biru).",
+      "Klik kolom alamat di bagian paling atas browser, ketik: batam-farma.web.app lalu tekan tombol Enter di keyboard.",
+      "Muncul halaman seperti gambar di bawah. Pastikan tombol \"Username\" yang berwarna putih/aktif (biasanya sudah otomatis).",
+      "Klik kotak di bawah tulisan Username, lalu ketik username pemberian Owner/Admin. Gunakan huruf kecil semua, tanpa spasi.",
+      "Klik kotak di bawah tulisan Password, lalu ketik password Anda. Klik tulisan \"Lihat\" di kanan kotak untuk memastikan ketikan benar.",
+      "Klik tombol hijau besar \"Masuk\". Tunggu beberapa detik sampai layar utama terbuka.",
+    ],
+    tip: "Jika muncul tulisan merah \"Username atau password salah\", ulangi pelan-pelan — password membedakan huruf besar dan kecil. Lupa password? Minta Owner meresetnya dari menu Pengguna & Akses; Anda tidak perlu membuat akun baru.",
+    roles: ["OWNER", "STAFF", "CASHIER"],
+  },
+  {
+    title: "2. Mengenal layar utama (Dashboard)",
+    image: "/guide/02-dashboard.png",
+    alt: "Dashboard dengan menu di kiri dan kartu angka ringkasan",
+    steps: [
+      "Setelah masuk, Anda melihat Dashboard: ucapan selamat datang, nama apotek, dan kartu-kartu berisi angka.",
+      "Di sisi KIRI ada daftar menu (POS, Inventory, dan lainnya). Di HP, menu berada di BAWAH layar. Klik nama menu untuk berpindah.",
+      "Kartu angka (contoh: Produk, Unit stok tersedia) BISA DIKLIK. Klik satu kartu untuk melihat daftar rinciannya; klik \"Tutup\" untuk kembali.",
+      "Garis berjalan berwarna hijau di atas kartu berisi pengingat penting, misalnya batch yang mendekati kedaluwarsa.",
+      "Tombol \"Keluar\" ada di bagian bawah menu kiri (di HP: pojok kanan atas). Gunakan saat selesai bekerja.",
+    ],
+    roles: ["OWNER", "STAFF", "CASHIER"],
+    link: { to: "/app", label: "Buka Dashboard" },
+  },
+  {
+    title: "3. Menjual obat di kasir (POS)",
+    image: "/guide/03-pos.png",
+    alt: "Halaman POS dengan kotak pencarian dan kartu produk",
+    intro: "Gambar di bawah menunjukkan POS dalam Mode Latihan (bingkai kuning). POS sungguhan tampilannya sama, tanpa bingkai kuning.",
+    steps: [
+      "Klik menu \"POS\" di sebelah kiri.",
+      "Klik kotak pencarian bertuliskan \"Cari nama / kategori / gejala\", lalu ketik nama obat (contoh: ketik \"para\" untuk Parasetamol).",
+      "Klik kartu obat yang dicari — obat langsung masuk ke KERANJANG di sisi kanan layar.",
+      "Di keranjang, atur jumlah dengan tombol + dan −. Salah pilih? Klik tanda silang/hapus pada baris obat itu.",
+      "Periksa TOTAL harga di bagian bawah keranjang, lalu sebutkan ke pembeli.",
+      "Pilih cara bayar: Tunai, Debit, atau Transfer. Untuk Tunai, ketik jumlah uang yang diterima — kembalian dihitung otomatis.",
+      "Klik tombol konfirmasi/bayar. Transaksi tersimpan dan nota siap dicetak (printer) atau dikirim lewat WhatsApp.",
+    ],
+    tip: "Ingin berlatih tanpa takut salah? Klik \"Mode latihan (SAMPLE)\" di bagian atas POS. Semua transaksi latihan TIDAK sungguhan: stok dan omzet asli tidak berubah. Jangan menerima uang sungguhan saat latihan. Klik \"Kembali ke POS operasional\" untuk berjualan sungguhan.",
+    roles: ["OWNER", "CASHIER"],
+    link: { to: "/app/pos", label: "Buka POS" },
+  },
+  {
+    title: "4. Memeriksa dan menambah stok (Inventory)",
+    image: "/guide/04-inventory.png",
+    alt: "Halaman Inventory berisi daftar produk dan stok",
+    steps: [
+      "Klik menu \"Inventory\" di sebelah kiri.",
+      "Untuk memeriksa stok: ketik nama obat di kotak pencarian. Terlihat jumlah stok, harga, dan tanggal kedaluwarsanya.",
+      "Untuk menambah obat baru: klik tombol hijau \"+ Produk Baru\", isi nama obat, harga jual, dan satuan, lalu simpan.",
+      "Saat barang datang dari pemasok: buka produknya, tambahkan BATCH baru — isi jumlah, tanggal kedaluwarsa (lihat tulisan EXP/ED di kemasan), dan nama pemasok.",
+      "Selalu periksa tanggal kedaluwarsa sebelum menyimpan. Tanggal ini dipakai aplikasi untuk mengingatkan obat yang hampir kedaluwarsa.",
+      "Untuk memasukkan banyak produk sekaligus: klik \"Template impor\" untuk mengunduh file Excel contoh, isi di Excel, lalu klik \"Impor Excel\". Tombol \"Ekspor Excel\" mengunduh seluruh daftar stok.",
+    ],
+    roles: ["OWNER", "STAFF"],
+    link: { to: "/app/inventory", label: "Buka Inventory" },
+  },
+  {
+    title: "5. Menambah pengguna dan reset password",
+    image: "/guide/05-users.png",
+    alt: "Halaman Pengguna dan Akses berisi daftar anggota apotek",
+    intro: "Hanya Owner yang bisa melakukan ini.",
+    steps: [
+      "Klik menu \"Pengguna & Akses\" di sebelah kiri.",
+      "Klik tombol hijau \"+ Tambah pengguna\" di kanan atas.",
+      "Pilih \"Username & password\" (paling mudah untuk karyawan), lalu isi: username (huruf kecil, contoh: kasir1), password (minimal 6 karakter, ada huruf dan angka), dan nama karyawan.",
+      "Pilih perannya: \"Kasir\" untuk yang melayani penjualan, \"Staf Apotek\" untuk yang mengurus stok. Klik \"Buat akun\".",
+      "Beritahukan username dan password itu ke karyawan — mereka langsung bisa masuk di batam-farma.web.app.",
+      "Karyawan lupa password? Cari namanya di daftar, klik \"Reset password\", ketik password baru, klik \"Simpan\". Beritahukan password barunya.",
+      "Karyawan berhenti bekerja? Klik \"Nonaktifkan\" (bisa diaktifkan lagi) atau \"Hapus akun\" (permanen, riwayat transaksi tetap tersimpan).",
+    ],
+    roles: ["OWNER"],
+    link: { to: "/app/users", label: "Kelola pengguna" },
+  },
+  {
+    title: "6. Menyimpan data pelanggan dan pemasok",
+    image: "/guide/06-customers.png",
+    alt: "Halaman Pelanggan berisi daftar kontak",
+    steps: [
+      "Klik menu \"Pelanggan\" (atau \"Pemasok\") di sebelah kiri.",
+      "SEBELUM menambah, ketik dulu namanya di kotak pencarian — supaya tidak membuat data ganda.",
+      "Jika belum ada, klik tombol hijau \"+ Tambah pelanggan\" / \"+ Tambah pemasok\".",
+      "Isi nama dan nomor telepon/WhatsApp, lalu klik \"Simpan\". Kolom lain boleh dikosongkan dulu.",
+      "Pelanggan tersimpan bisa dipilih di POS (tombol Info Pelanggan) agar nama dan nomor WA otomatis terisi di nota.",
+      "Jangan menulis resep, penyakit, atau data kesehatan pasien di catatan.",
+    ],
+    roles: ["OWNER", "STAFF"],
+    link: { to: "/app/customers", label: "Buka Pelanggan" },
+  },
+  {
+    title: "7. Mengembalikan barang ke pemasok (Retur)",
+    image: "/guide/07-returns.png",
+    alt: "Halaman Retur Pemasok dengan formulir retur",
+    steps: [
+      "Klik menu \"Retur Pemasok\" di sebelah kiri.",
+      "Pilih nama pemasok dari daftar. Hanya pemasok yang ditandai \"menerima retur\" yang muncul — penandaan diatur di menu Pemasok.",
+      "Pilih batch barang yang mau dikembalikan, lalu isi jumlahnya.",
+      "Pilih alasan (contoh: Mendekati kedaluwarsa, Rusak), tambahkan catatan jika perlu.",
+      "Cocokkan dengan barang fisik di tangan, lalu klik \"Keluarkan stok & catat retur\". Stok otomatis berkurang dan retur tercatat di riwayat.",
+    ],
+    roles: ["OWNER", "STAFF"],
+    link: { to: "/app/returns", label: "Buka Retur Pemasok" },
+  },
+  {
+    title: "8. Selesai bekerja: keluar dari aplikasi",
+    image: "/guide/02-dashboard.png",
+    alt: "Letak tombol Keluar di bagian bawah menu kiri",
+    steps: [
+      "Pastikan tidak ada transaksi yang sedang berjalan di POS.",
+      "Klik tombol \"Keluar\" di bagian paling bawah menu kiri (di HP: pojok kanan atas).",
+      "Layar kembali ke halaman login — artinya Anda sudah keluar dengan aman.",
+      "Jangan hanya menutup browser tanpa Keluar jika komputer dipakai bersama orang lain.",
+    ],
+    roles: ["OWNER", "STAFF", "CASHIER"],
+  },
+];
+
 const ownerGuide: GuideSection[] = [
   {
     title: "Dashboard",
@@ -287,13 +422,54 @@ export function UserGuide() {
   const owner = role === "OWNER" || isAdmin;
   const guide = owner ? ownerGuide : role === "CASHIER" ? cashierGuide : staffGuide;
   const roleName = owner ? "Owner" : role === "CASHIER" ? "Kasir" : "Staf";
+  const roleKey: "OWNER" | "STAFF" | "CASHIER" = owner ? "OWNER" : role === "CASHIER" ? "CASHIER" : "STAFF";
+  const visibleTutorials = tutorials.filter((tutorial) => tutorial.roles.includes(roleKey));
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <header>
         <p className="text-sm font-medium text-brand-700">Pusat bantuan · {roleName}</p>
         <h1 className="mt-1 text-2xl font-bold">Petunjuk penggunaan</h1>
-        <p className="mt-2 text-sm text-ink-500">Langkah singkat untuk memakai fitur yang tersedia untuk peranmu.</p>
+        <p className="mt-2 text-sm text-ink-500">Panduan bergambar langkah demi langkah, diikuti rincian setiap menu untuk peranmu.</p>
+      </header>
+
+      <section className="space-y-5">
+        <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800">
+          <strong>Baru pertama kali?</strong> Ikuti panduan bergambar di bawah ini urut dari nomor 1. Setiap gambar adalah tampilan asli aplikasi.
+        </div>
+        {visibleTutorials.map((tutorial) => (
+          <article key={tutorial.title} className="card p-5">
+            <h2 className="text-lg font-bold">{tutorial.title}</h2>
+            {tutorial.intro && <p className="mt-1 text-sm text-ink-500">{tutorial.intro}</p>}
+            <img
+              src={tutorial.image}
+              alt={tutorial.alt}
+              loading="lazy"
+              className="mt-4 w-full rounded-lg border border-surface-200 shadow-sm"
+            />
+            <ol className="mt-4 space-y-3">
+              {tutorial.steps.map((step, index) => (
+                <li key={index} className="flex gap-3">
+                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-600 text-sm font-bold text-white">{index + 1}</span>
+                  <span className="text-[15px] leading-7 text-ink-800">{step}</span>
+                </li>
+              ))}
+            </ol>
+            {tutorial.tip && (
+              <p className="mt-4 rounded-lg border border-warn-200 bg-warn-50 px-3 py-2 text-sm leading-6 text-warn-800">
+                💡 {tutorial.tip}
+              </p>
+            )}
+            {tutorial.link && (
+              <Link to={tutorial.link.to} className="btn-primary mt-4 inline-flex">{tutorial.link.label} →</Link>
+            )}
+          </article>
+        ))}
+      </section>
+
+      <header className="pt-2">
+        <h2 className="text-xl font-bold">Rincian dan aturan setiap menu</h2>
+        <p className="mt-1 text-sm text-ink-500">Bacaan lanjutan: batasan dan hal yang perlu diperhatikan per menu.</p>
       </header>
 
       <section className="card p-5">
