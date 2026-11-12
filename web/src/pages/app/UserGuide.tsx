@@ -1,5 +1,10 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
+
+function slugify(text: string) {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
 
 type GuidePreviewKind = "owner-access" | "staff-return" | "cashier-payment";
 type GuideSection = { title: string; steps: string[]; link?: { to: string; label: string }; preview?: GuidePreviewKind };
@@ -82,7 +87,27 @@ const tutorials: Tutorial[] = [
     link: { to: "/app/inventory", label: "Buka Inventory" },
   },
   {
-    title: "5. Menambah pengguna dan reset password",
+    title: "5. Impor & ekspor stok lewat Excel (pindahan data / stok banyak)",
+    image: "/guide/04-inventory.png",
+    alt: "Tombol Ekspor Excel, Template impor, dan Impor Excel di bagian atas halaman Inventory",
+    intro: "Gunakan ini untuk memindahkan data dari aplikasi lama atau memasukkan ratusan obat sekaligus. Tombolnya ada di bagian atas halaman Inventory (lihat gambar).",
+    steps: [
+      "Klik \"Ekspor Excel\" untuk MENGUNDUH seluruh stok sebagai file Excel — berguna untuk arsip atau memeriksa data di komputer.",
+      "Untuk MEMASUKKAN data: klik \"Template impor\". File bernama template-impor-stok.xlsx terunduh ke folder Download.",
+      "Buka file itu di Excel. Di bagian bawah ada 2 lembar (sheet): \"Stok\" berisi 2 baris contoh yang bisa ditiru, dan \"Petunjuk\" berisi penjelasan setiap kolom dalam bahasa Indonesia.",
+      "Isi SATU BARIS untuk SATU OBAT di sheet Stok. Kolom terpenting: name = nama obat, salePrice = HARGA JUAL per satuan (bukan harga beli!), rxRequired = true untuk obat resep / false untuk lainnya, marketplaceEnabled = false.",
+      "Kolom stok: qty = jumlah stok, batchNo = isi MIGRASI, sourceType = isi OPENING_STOCK, expiryISO = tanggal kedaluwarsa dengan format 2027-06-30. Belum tahu ED-nya? Isi 2030-12-31 dulu, nanti dikoreksi di Inventory.",
+      "Kolom pelengkap (boleh kosong): code = kode obat, unit = satuan (TABLET/PCS/STRIP), supplierName = nama PBF/pemasok (otomatis didaftarkan ke menu Pemasok), purchasePrice = harga beli/HPP, minStock = batas stok minimum.",
+      "Selesai mengisi: HAPUS 2 baris contoh bawaan template agar tidak ikut masuk, lalu simpan file (Ctrl+S).",
+      "Kembali ke aplikasi, klik \"Impor Excel\", pilih file tadi, tunggu sampai muncul pesan hijau \"... produk berhasil diimpor\".",
+      "Jika muncul pesan merah, baca nomor barisnya (contoh: \"Baris 5: ...\"), perbaiki baris itu di Excel, simpan, lalu impor ulang. Impor boleh diulang — data yang sama diperbarui, tidak menjadi dobel.",
+    ],
+    tip: "Satu obat dengan beberapa batch (ED berbeda) ditulis dalam beberapa baris dengan kolom name yang sama. Tanggal boleh diketik sebagai tanggal Excel biasa — aplikasi mengerti keduanya.",
+    roles: ["OWNER", "STAFF"],
+    link: { to: "/app/inventory", label: "Buka Inventory" },
+  },
+  {
+    title: "6. Menambah pengguna dan reset password",
     image: "/guide/05-users.png",
     alt: "Halaman Pengguna dan Akses berisi daftar anggota apotek",
     image2: "/guide/05b-users-form.png",
@@ -105,7 +130,7 @@ const tutorials: Tutorial[] = [
     link: { to: "/app/users", label: "Kelola pengguna" },
   },
   {
-    title: "6. Menyimpan data pelanggan dan pemasok",
+    title: "7. Menyimpan data pelanggan dan pemasok",
     image: "/guide/06-customers.png",
     alt: "Halaman Pelanggan berisi daftar kontak",
     steps: [
@@ -120,7 +145,7 @@ const tutorials: Tutorial[] = [
     link: { to: "/app/customers", label: "Buka Pelanggan" },
   },
   {
-    title: "7. Mengembalikan barang ke pemasok (Retur)",
+    title: "8. Mengembalikan barang ke pemasok (Retur)",
     image: "/guide/07-returns.png",
     alt: "Halaman Retur Pemasok dengan formulir retur",
     steps: [
@@ -134,7 +159,7 @@ const tutorials: Tutorial[] = [
     link: { to: "/app/returns", label: "Buka Retur Pemasok" },
   },
   {
-    title: "8. Selesai bekerja: keluar dari aplikasi",
+    title: "9. Selesai bekerja: keluar dari aplikasi",
     image: "/guide/02-dashboard.png",
     alt: "Letak tombol Keluar di bagian bawah menu kiri",
     steps: [
@@ -432,6 +457,19 @@ export function UserGuide() {
   const roleName = owner ? "Owner" : role === "CASHIER" ? "Kasir" : "Staf";
   const roleKey: "OWNER" | "STAFF" | "CASHIER" = owner ? "OWNER" : role === "CASHIER" ? "CASHIER" : "STAFF";
   const visibleTutorials = tutorials.filter((tutorial) => tutorial.roles.includes(roleKey));
+  const [search, setSearch] = useState("");
+
+  const needle = search.trim().toLowerCase();
+  const matchesText = (parts: Array<string | undefined>) =>
+    !needle || parts.some((part) => (part || "").toLowerCase().includes(needle));
+  const filteredTutorials = visibleTutorials.filter((tutorial) =>
+    matchesText([tutorial.title, tutorial.intro, tutorial.tip, ...tutorial.steps]));
+  const filteredGuide = guide.filter((section) => matchesText([section.title, ...section.steps]));
+  const searching = needle.length > 0;
+
+  function jumpTo(id: string) {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -441,12 +479,61 @@ export function UserGuide() {
         <p className="mt-2 text-sm text-ink-500">Panduan bergambar langkah demi langkah, diikuti rincian setiap menu untuk peranmu.</p>
       </header>
 
-      <section className="space-y-5">
-        <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800">
-          <strong>Baru pertama kali?</strong> Ikuti panduan bergambar di bawah ini urut dari nomor 1. Setiap gambar adalah tampilan asli aplikasi.
+      {/* Pencarian + daftar isi klik */}
+      <section className="card p-5">
+        <label className="block text-sm font-medium text-ink-700">🔎 Cari bantuan
+          <input
+            className="input mt-2 w-full"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Ketik kata kunci, contoh: password, impor, retur, nota…"
+          />
+        </label>
+        {searching && filteredTutorials.length === 0 && filteredGuide.length === 0 && (
+          <p className="mt-3 text-sm text-ink-500">Tidak ada panduan yang cocok dengan "{search}". Coba kata lain, misalnya "stok" atau "login".</p>
+        )}
+        <div className="mt-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Panduan bergambar</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {filteredTutorials.map((tutorial) => (
+              <button
+                key={tutorial.title}
+                type="button"
+                className="rounded-full border border-brand-200 bg-brand-50 px-3 py-1.5 text-sm text-brand-800 hover:bg-brand-100 transition-colors"
+                onClick={() => jumpTo(`tut-${slugify(tutorial.title)}`)}
+              >
+                {tutorial.title}
+              </button>
+            ))}
+            {filteredTutorials.length === 0 && <span className="text-sm text-ink-400">—</span>}
+          </div>
         </div>
-        {visibleTutorials.map((tutorial) => (
-          <article key={tutorial.title} className="card p-5">
+        <div className="mt-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-400">Rincian per menu</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {filteredGuide.map((section) => (
+              <button
+                key={section.title}
+                type="button"
+                className="rounded-full border border-surface-200 bg-surface-50 px-3 py-1.5 text-sm text-ink-700 hover:bg-surface-100 transition-colors"
+                onClick={() => jumpTo(`menu-${slugify(section.title)}`)}
+              >
+                {section.title}
+              </button>
+            ))}
+            {filteredGuide.length === 0 && <span className="text-sm text-ink-400">—</span>}
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-5">
+        {!searching && (
+          <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800">
+            <strong>Baru pertama kali?</strong> Ikuti panduan bergambar di bawah ini urut dari nomor 1. Setiap gambar adalah tampilan asli aplikasi.
+          </div>
+        )}
+        {filteredTutorials.map((tutorial) => (
+          <article key={tutorial.title} id={`tut-${slugify(tutorial.title)}`} className="card p-5 scroll-mt-16">
             <h2 className="text-lg font-bold">{tutorial.title}</h2>
             {tutorial.intro && <p className="mt-1 text-sm text-ink-500">{tutorial.intro}</p>}
             <img
@@ -488,7 +575,7 @@ export function UserGuide() {
         <p className="mt-1 text-sm text-ink-500">Bacaan lanjutan: batasan dan hal yang perlu diperhatikan per menu.</p>
       </header>
 
-      <section className="card p-5">
+      {!searching && <section className="card p-5">
         <h2 className="font-semibold">Checklist pilot satu PC</h2>
         <ul className="mt-3 list-disc pl-5 text-sm leading-6 text-ink-700">
           <li>Uji login Owner, Staf, dan Kasir menggunakan akun masing-masing; cek menu dan batas aksesnya.</li>
@@ -499,9 +586,9 @@ export function UserGuide() {
           <li>Rekonsiliasi kas dan stok setiap tutup hari, unduh backup, dan simpan pencatatan pembanding selama pilot.</li>
           <li>Marketplace, pembayaran online, dan penjualan obat wajib resep belum tersedia. HPP/laba belum terverifikasi; jangan gunakan sebagai laporan laba final.</li>
         </ul>
-      </section>
+      </section>}
 
-      <section className="card p-5">
+      {!searching && <section className="card p-5">
         <h2 className="font-semibold">Ringkasan akses setiap peran</h2>
         <div className="mt-3 grid gap-4 md:grid-cols-3">
           <div>
@@ -531,11 +618,11 @@ export function UserGuide() {
           Owner mengatur akun Staf dan Kasir melalui menu Pengguna &amp; Akses. Menu yang tidak termasuk peranmu
           akan ditolak meskipun alamat halamannya dibuka langsung.
         </p>
-      </section>
+      </section>}
 
       <div className="grid gap-4 md:grid-cols-2">
-        {guide.map((section) => (
-          <section key={section.title} className="card p-5">
+        {filteredGuide.map((section) => (
+          <section key={section.title} id={`menu-${slugify(section.title)}`} className="card p-5 scroll-mt-16">
             <h2 className="font-semibold">{section.title}</h2>
             <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6 text-ink-700">
               {section.steps.map((step) => <li key={step}>{step}</li>)}
