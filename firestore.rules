@@ -1,0 +1,439 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny
+    match /{document=**} { allow read, write: if false; }
+
+    function isSignedIn()    { return request.auth != null; }
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == "sarju.kesumo@gmail.com" && request.auth.token.email_verified == true)
+        // Built-in password super admin (internal username e-mail; cannot be
+        // registered by anyone else once the account exists in Firebase Auth).
+        || request.auth.token.email == "masipul@u.batam-farma.app"
+      );
+    }
+    function accessPath()    { return /databases/$(database)/documents/userAccess/$(request.auth.uid); }
+    function hasAccess()     { return isSignedIn() && exists(accessPath()); }
+    function accessData()    { return get(accessPath()).data; }
+    function accessActive()  { return !hasAccess() || accessData().active == true; }
+    function tenantClaim()   { return hasAccess() ? accessData().tenantId : request.auth.token.tenantId; }
+    function isTenant(tid)   { return isSignedIn() && accessActive() && tenantClaim() == tid; }
+    function role()          { return hasAccess() ? accessData().role : request.auth.token.role; }
+    function isTenantOwner(tid) { return isTenant(tid) && role() == "OWNER"; }
+    function cashierDiscountLimit(tid) {
+      let tenantData = get(/databases/$(database)/documents/tenants/$(tid)).data;
+      return tenantData.keys().hasAny(["posSettings"])
+        && tenantData.posSettings is map
+        && tenantData.posSettings.keys().hasAny(["cashierMaxDiscountPct"])
+        ? tenantData.posSettings.cashierMaxDiscountPct
+        : 10;
+    }
+    function isCustomer()    { return isSignedIn() && role() == "CUSTOMER"; }
+    function isVerifiedEmail() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true;
+    }
+    function invitePath(email) {
+      return /databases/$(database)/documents/userInvitesByEmail/$(email);
+    }
+    function usernameAccountPath(username) {
+      return /databases/$(database)/documents/usernameAccounts/$(username);
+    }
+
+    match /userAccess/{uid} {
+      allow read: if isAdmin()
+                  || (isSignedIn() && request.auth.uid == uid)
+                  || isTenantOwner(resource.data.tenantId);
+      allow create: if isAdmin() || (
+        isVerifiedEmail()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.active == true
+        && request.resource.data.role in ["OWNER", "STAFF", "CASHIER"]
+        && exists(invitePath(request.auth.token.email))
+        && get(invitePath(request.auth.token.email)).data.active == true
+        && get(invitePath(request.auth.token.email)).data.status == "PENDING"
+        && get(invitePath(request.auth.token.email)).data.role == request.resource.data.role
+        && get(invitePath(request.auth.token.email)).data.tenantId == request.resource.data.tenantId
+        && existsAfter(invitePath(request.auth.token.email))
+        && getAfter(invitePath(request.auth.token.email)).data.status == "CLAIMED"
+        && getAfter(invitePath(request.auth.token.email)).data.claimedUid == uid
+      ) || (
+        // Owner provisions a password (username) account for their own tenant.
+        // The access doc must point at the tenant's reserved username mapping
+        // written in the same batch (getAfter), binding uid <-> authEmail.
+        isTenantOwner(request.resource.data.tenantId)
+        && request.resource.data.uid == uid
+        && request.resource.data.active == true
+        && request.resource.data.role in ["STAFF", "CASHIER"]
+        && request.resource.data.username is string
+        && request.resource.data.email is string
+        && request.resource.data.email.matches('.*@u\\.batam-farma\\.app')
+        && existsAfter(usernameAccountPath(request.resource.data.username))
+        && getAfter(usernameAccountPath(request.resource.data.username)).data.authEmail == request.resource.data.email
+        && getAfter(usernameAccountPath(request.resource.data.username)).data.tenantId == request.resource.data.tenantId
+      );
+      allow update: if isAdmin() || (
+        isTenantOwner(resource.data.tenantId)
+        && resource.data.role in ["STAFF", "CASHIER"]
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.tenantId == resource.data.tenantId
+        && request.resource.data.role in ["STAFF", "CASHIER"]
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["role", "active", "displayName", "updatedAt"])
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /userInvitesByEmail/{email} {
+      allow read: if isAdmin()
+                  || (isVerifiedEmail() && request.auth.token.email == email)
+                  || isTenantOwner(resource.data.tenantId);
+      allow create: if isAdmin() || (
+        isTenantOwner(request.resource.data.tenantId)
+        && request.resource.data.role in ["STAFF", "CASHIER"]
+        && request.resource.data.email == email
+        && request.resource.data.active == true
+        && request.resource.data.status == "PENDING"
+        && request.resource.data.createdBy == request.auth.uid
+      );
+      allow delete: if isAdmin() || (
+        isTenantOwner(resource.data.tenantId)
+        && resource.data.status != "CLAIMED"
+      );
+      allow update: if isAdmin() || (
+        isTenantOwner(resource.data.tenantId)
+        && resource.data.status != "CLAIMED"
+        && request.resource.data.tenantId == resource.data.tenantId
+        && ((resource.data.role in ["STAFF", "CASHIER"] && request.resource.data.role in ["STAFF", "CASHIER"])
+            || (resource.data.role == "OWNER" && request.resource.data.role == "OWNER"))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["role", "active", "displayName", "status", "updatedAt"])
+      ) || (
+        isVerifiedEmail()
+        && request.auth.token.email == email
+        && resource.data.active == true
+        && resource.data.status == "PENDING"
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status", "claimedUid", "claimedAt", "updatedAt"])
+        && request.resource.data.status == "CLAIMED"
+        && request.resource.data.claimedUid == request.auth.uid
+      );
+    }
+
+    match /userInvites/{inviteId} {
+      allow read, write: if false;
+    }
+
+    // Username -> internal auth e-mail mapping for password login.
+    // `get` is public because the lookup happens before sign-in; `list` stays
+    // closed so usernames cannot be enumerated. Passwords are never stored here.
+    match /usernameAccounts/{username} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if isAdmin() || (
+        isTenantOwner(request.resource.data.tenantId)
+        && username.matches('^[a-z0-9][a-z0-9._-]{2,19}$')
+        && request.resource.data.username == username
+        && request.resource.data.suffix is string
+        && request.resource.data.suffix.matches('^[a-z0-9]{6,20}$')
+        && request.resource.data.authEmail == username + '.' + request.resource.data.suffix + '@u.batam-farma.app'
+        && request.resource.data.active == true
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          "username", "suffix", "authEmail", "tenantId", "active", "createdBy", "createdAt", "updatedAt"
+        ])
+      );
+      allow update: if isAdmin() || (
+        isTenantOwner(resource.data.tenantId)
+        && request.resource.data.tenantId == resource.data.tenantId
+        && request.resource.data.username == username
+        && request.resource.data.suffix is string
+        && request.resource.data.suffix.matches('^[a-z0-9]{6,20}$')
+        && request.resource.data.authEmail == username + '.' + request.resource.data.suffix + '@u.batam-farma.app'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "suffix", "authEmail", "active", "updatedAt"
+        ])
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /publicTenants/{tenantSlug} {
+      allow read: if resource.data.marketplaceEnabled == true;
+      allow create: if isAdmin() || (
+        isTenantOwner(request.resource.data.tenantId)
+        && request.resource.data.tenantSlug == tenantSlug
+        && request.resource.data.keys().hasOnly([
+          "tenantId", "tenantSlug", "name", "city", "address", "phone",
+          "whatsapp", "logoUrl", "primaryColor", "marketplaceEnabled", "updatedAt"
+        ])
+      );
+      allow update: if isAdmin() || (
+        isTenantOwner(resource.data.tenantId)
+        && request.resource.data.tenantId == resource.data.tenantId
+        && request.resource.data.tenantSlug == tenantSlug
+        && request.resource.data.keys().hasOnly([
+          "tenantId", "tenantSlug", "name", "city", "address", "phone",
+          "whatsapp", "logoUrl", "primaryColor", "marketplaceEnabled", "updatedAt"
+        ])
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Global config — admin only
+    match /systemConfig/{doc} {
+      allow read, write: if isAdmin();
+    }
+
+    // Tenants
+    match /tenants/{tid} {
+      allow read: if isAdmin() || isTenant(tid);
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (
+        isTenantOwner(tid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "profile", "branding", "receipt", "hardware", "posSettings",
+          "marketplaceEnabled", "name", "updatedAt"
+        ])
+      );
+      allow delete: if isAdmin();
+
+      // Products — public read only when marketplaceEnabled & active
+      match /products/{pid} {
+        allow read: if (resource.data.marketplaceEnabled == true && resource.data.active == true)
+                    || isAdmin() || isTenant(tid);
+        allow create, delete: if isAdmin() || (isTenant(tid) && role() in ["OWNER", "STAFF", "INVENTORY"]);
+        allow update: if isAdmin()
+                      || (isTenant(tid) && role() in ["OWNER","STAFF","INVENTORY"])
+                      || (isTenant(tid) && role() == "CASHIER"
+                          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["stock", "lastSaleId", "updatedAt"])
+                          && request.resource.data.stock is int
+                          && request.resource.data.stock >= 0
+                          && request.resource.data.stock < resource.data.stock
+                          && request.resource.data.updatedAt == request.time
+                          && existsAfter(/databases/$(database)/documents/tenants/$(tid)/posSales/$(request.resource.data.lastSaleId))
+                          && getAfter(/databases/$(database)/documents/tenants/$(tid)/posSales/$(request.resource.data.lastSaleId)).data.productId == pid
+                          && getAfter(/databases/$(database)/documents/tenants/$(tid)/posSales/$(request.resource.data.lastSaleId)).data.cashierUid == request.auth.uid
+                          && resource.data.stock - request.resource.data.stock
+                            == getAfter(/databases/$(database)/documents/tenants/$(tid)/posSales/$(request.resource.data.lastSaleId)).data.qty);
+      }
+
+      match /inventoryBatches/{bid} {
+        allow read: if isAdmin() || isTenant(tid);
+        allow create: if isAdmin() || (
+          isTenant(tid)
+          && role() in ["OWNER", "STAFF", "INVENTORY"]
+          && !request.resource.data.keys().hasAny(["costPrice"])
+          && request.resource.data.expiryAt is timestamp
+        );
+        allow delete: if isAdmin() || (isTenant(tid) && role() in ["OWNER", "STAFF", "INVENTORY"]);
+        allow update: if isAdmin()
+                      || (isTenant(tid) && role() == "OWNER")
+                      || (isTenant(tid) && role() in ["STAFF", "INVENTORY"]
+                          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["costPrice"]))
+                      || (isTenant(tid) && role() == "CASHIER"
+                          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["qty", "lastSaleId", "updatedAt"])
+                          && request.resource.data.qty is int
+                          && request.resource.data.qty >= 0
+                          && request.resource.data.qty < resource.data.qty
+                          && request.resource.data.updatedAt == request.time
+                          && existsAfter(/databases/$(database)/documents/tenants/$(tid)/posSales/$(request.resource.data.lastSaleId))
+                          && getAfter(/databases/$(database)/documents/tenants/$(tid)/posSales/$(request.resource.data.lastSaleId)).data.batchId == bid
+                          && getAfter(/databases/$(database)/documents/tenants/$(tid)/posSales/$(request.resource.data.lastSaleId)).data.cashierUid == request.auth.uid
+                          && getAfter(/databases/$(database)/documents/tenants/$(tid)/posSales/$(request.resource.data.lastSaleId)).data.qty == resource.data.qty - request.resource.data.qty);
+      }
+
+      match /inventoryBatchCosts/{bid} {
+        allow read, write: if isAdmin() || isTenantOwner(tid);
+      }
+
+      function requestSaleMatches(requestId, productId, fingerprint) {
+        let sale = getAfter(/databases/$(database)/documents/tenants/$(tid)/posSales/$(requestId + "_" + productId)).data;
+        return sale.cashierUid == request.auth.uid && sale.requestFingerprint == fingerprint;
+      }
+
+      match /posRequests/{requestId} {
+        allow list: if isAdmin() || isTenantOwner(tid);
+        allow get: if isAdmin() || (isTenant(tid) && (
+          role() == "OWNER" || (role() == "CASHIER" && (
+            !exists(/databases/$(database)/documents/tenants/$(tid)/posRequests/$(requestId))
+            || resource.data.cashierUid == request.auth.uid
+          ))
+        ));
+        allow create: if isTenant(tid) && role() in ["OWNER", "CASHIER"]
+          && request.resource.data.keys().hasOnly(["requestId", "cashierUid", "requestFingerprint", "productIds", "createdAt"])
+          && request.resource.data.requestId == requestId
+          && request.resource.data.cashierUid == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.requestFingerprint is string
+          && request.resource.data.productIds is list
+          && request.resource.data.productIds.size() >= 1
+          && request.resource.data.productIds.size() <= 4
+          && requestSaleMatches(requestId, request.resource.data.productIds[0], request.resource.data.requestFingerprint)
+          && (request.resource.data.productIds.size() < 2 || requestSaleMatches(requestId, request.resource.data.productIds[1], request.resource.data.requestFingerprint))
+          && (request.resource.data.productIds.size() < 3 || requestSaleMatches(requestId, request.resource.data.productIds[2], request.resource.data.requestFingerprint))
+          && (request.resource.data.productIds.size() < 4 || requestSaleMatches(requestId, request.resource.data.productIds[3], request.resource.data.requestFingerprint));
+        allow update, delete: if false;
+      }
+
+      match /posSales/{saleId} {
+        allow list: if isAdmin() || (isTenant(tid) && role() == "OWNER");
+        allow get: if isAdmin() || (isTenant(tid) && (
+          role() == "OWNER" || (role() == "CASHIER" && (
+            !exists(/databases/$(database)/documents/tenants/$(tid)/posSales/$(saleId))
+            || (resource.data.cashierUid == request.auth.uid
+                && !resource.data.keys().hasAny(["totalCostRp", "grossProfitRp", "costPrice"]))
+          ))
+        ));
+        allow create: if isTenant(tid)
+                      && role() in ["OWNER", "CASHIER"]
+                      && request.resource.data.keys().hasOnly([
+                        "tenantId", "requestId", "requestFingerprint", "trxId", "cashierUid", "cashier", "dateISO", "createdAt",
+                        "productId", "batchId", "batchNo", "qty", "unitPrice", "subtotalRp",
+                        "discountPct", "discountRp", "totalRp", "paymentMethod", "cashReceived", "totalCostStatus", "items"
+                      ])
+                      && request.resource.data.tenantId == tid
+                      && request.resource.data.cashierUid == request.auth.uid
+                      && request.resource.data.requestId is string
+                      && getAfter(/databases/$(database)/documents/tenants/$(tid)/posRequests/$(request.resource.data.requestId)).data.requestFingerprint == request.resource.data.requestFingerprint
+                      && request.resource.data.productId in getAfter(/databases/$(database)/documents/tenants/$(tid)/posRequests/$(request.resource.data.requestId)).data.productIds
+                      && request.resource.data.requestId.matches("^[0-9a-fA-F-]{36}$")
+                      && saleId == request.resource.data.requestId + "_" + request.resource.data.productId
+                      && request.resource.data.createdAt == request.time
+                      && request.resource.data.totalCostStatus == "UNKNOWN"
+                      && request.resource.data.qty is int
+                      && request.resource.data.qty > 0
+                      && request.resource.data.unitPrice is int
+                      && request.resource.data.unitPrice >= 0
+                      && exists(/databases/$(database)/documents/tenants/$(tid)/products/$(request.resource.data.productId))
+                      && get(/databases/$(database)/documents/tenants/$(tid)/products/$(request.resource.data.productId)).data.active == true
+                      && (
+                        !get(/databases/$(database)/documents/tenants/$(tid)/products/$(request.resource.data.productId)).data.keys().hasAny(["rxRequired"])
+                        || get(/databases/$(database)/documents/tenants/$(tid)/products/$(request.resource.data.productId)).data.rxRequired != true
+                      )
+                      && request.resource.data.unitPrice == get(/databases/$(database)/documents/tenants/$(tid)/products/$(request.resource.data.productId)).data.price
+                      && exists(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId))
+                      && get(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId)).data.productId == request.resource.data.productId
+                      && request.resource.data.batchNo == get(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId)).data.batchNo
+                      && get(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId)).data.expiryAt is timestamp
+                      && get(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId)).data.expiryAt > request.time
+                      && request.resource.data.qty <= get(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId)).data.qty
+                      && getAfter(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId)).data.qty
+                        == get(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId)).data.qty - request.resource.data.qty
+                      && getAfter(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId)).data.lastSaleId == saleId
+                      && request.resource.data.subtotalRp == request.resource.data.qty * request.resource.data.unitPrice
+                      && request.resource.data.discountPct is int
+                      && request.resource.data.discountPct >= 0
+                      && request.resource.data.discountPct <= (role() == "OWNER" ? 100 : cashierDiscountLimit(tid))
+                      && request.resource.data.discountRp is int
+                      && request.resource.data.discountRp >= 0
+                      && request.resource.data.discountRp >= request.resource.data.subtotalRp * request.resource.data.discountPct / 100 - 0.5
+                      && request.resource.data.discountRp <= request.resource.data.subtotalRp * request.resource.data.discountPct / 100 + 0.5
+                      && request.resource.data.totalRp == request.resource.data.subtotalRp - request.resource.data.discountRp
+                      && request.resource.data.paymentMethod in ["TUNAI", "DEBIT", "TRANSFER"]
+                        && (request.resource.data.paymentMethod != "TUNAI"
+                          || (request.resource.data.cashReceived is int
+                            && request.resource.data.cashReceived >= request.resource.data.totalRp))
+                      && request.resource.data.items is list
+                      && request.resource.data.items.size() == 1
+                      && request.resource.data.items[0].productId == request.resource.data.productId
+                      && request.resource.data.items[0].productName == get(/databases/$(database)/documents/tenants/$(tid)/products/$(request.resource.data.productId)).data.name
+                      && request.resource.data.items[0].qty == request.resource.data.qty
+                      && request.resource.data.items[0].subtotalRp == request.resource.data.subtotalRp;
+        allow update, delete: if false;
+      }
+
+      match /privateSettings/{settingId} {
+        allow read, write: if isAdmin() || (isTenant(tid) && role() == "OWNER");
+      }
+
+      match /devices/{deviceId} {
+        allow read: if isAdmin() || isTenant(tid);
+        allow create: if isAdmin() || (
+          isTenant(tid)
+          && role() in ["OWNER", "STAFF", "CASHIER"]
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.name is string
+          && request.resource.data.paperWidth in ["58mm", "80mm"]
+          && request.resource.data.active == true
+        );
+        allow update: if isAdmin() || (
+          isTenant(tid)
+          && role() in ["OWNER", "STAFF", "CASHIER"]
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["name", "paperWidth", "active", "updatedAt"])
+        );
+        allow delete: if isAdmin() || isTenantOwner(tid);
+      }
+
+      match /suppliers/{supplierId} {
+        allow read: if isAdmin() || isTenant(tid);
+        allow create, update: if isAdmin() || (isTenant(tid) && role() in ["OWNER", "STAFF"]);
+        allow delete: if isAdmin() || isTenantOwner(tid);
+      }
+
+      match /customers/{customerId} {
+        allow read: if isAdmin() || (isTenant(tid) && role() in ["OWNER", "STAFF", "CASHIER"]);
+        allow create, update: if isAdmin() || (isTenant(tid) && role() in ["OWNER", "STAFF"]);
+        allow delete: if isAdmin() || isTenantOwner(tid);
+      }
+
+      match /supplierReturns/{returnId} {
+        allow read: if isAdmin() || (isTenant(tid) && role() in ["OWNER", "STAFF"]);
+        allow create: if isTenant(tid)
+          && role() in ["OWNER", "STAFF"]
+          && request.resource.data.tenantId == tid
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.status == "SENT"
+          && request.resource.data.qty is int
+          && request.resource.data.qty > 0
+          && exists(/databases/$(database)/documents/tenants/$(tid)/suppliers/$(request.resource.data.supplierId))
+          && get(/databases/$(database)/documents/tenants/$(tid)/suppliers/$(request.resource.data.supplierId)).data.active == true
+          && get(/databases/$(database)/documents/tenants/$(tid)/suppliers/$(request.resource.data.supplierId)).data.returnable == true
+          && exists(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId))
+          && get(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId)).data.supplierId == request.resource.data.supplierId
+          && get(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId)).data.sourceType == "PURCHASE"
+          && request.resource.data.qty <= get(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId)).data.qty
+          && getAfter(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId)).data.qty
+            == get(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId)).data.qty - request.resource.data.qty
+          && request.resource.data.productId == get(/databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId)).data.productId
+          && exists(/databases/$(database)/documents/tenants/$(tid)/products/$(request.resource.data.productId))
+          && request.resource.data.qty <= get(/databases/$(database)/documents/tenants/$(tid)/products/$(request.resource.data.productId)).data.stock
+          && getAfter(/databases/$(database)/documents/tenants/$(tid)/products/$(request.resource.data.productId)).data.stock
+            == get(/databases/$(database)/documents/tenants/$(tid)/products/$(request.resource.data.productId)).data.stock - request.resource.data.qty;
+        allow update, delete: if false;
+      }
+
+      match /marketplaceOrders/{oid} {
+        allow read: if isAdmin() || isTenant(tid)
+                    || (isCustomer() && resource.data.customer.uid == request.auth.uid);
+        allow create, update, delete: if false;
+      }
+
+      match /payouts/{pkey} {
+        allow read: if isAdmin() || (isTenant(tid) && role() == "OWNER");
+        allow write: if isAdmin();
+      }
+
+      match /doctorSchedules/{sid} {
+        allow read: if isAdmin() || isTenant(tid);
+        allow write: if false;
+      }
+
+      match /doctors/{did} {
+        allow read: if isAdmin() || isTenant(tid);
+        allow write: if false;
+      }
+
+      match /doctorBookings/{bid} {
+        allow read: if isAdmin() || isTenant(tid)
+                    || (isSignedIn() && resource.data.customer.uid == request.auth.uid);
+        allow create, update, delete: if false;
+      }
+    }
+
+    match /payments/{pid}      { allow read, write: if isAdmin(); }
+    match /webhookEvents/{eid} { allow read, write: if isAdmin(); }
+  }
+}

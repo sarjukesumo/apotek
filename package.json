@@ -1,0 +1,27 @@
+{
+  "name": "pharmaos-ai",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["web", "functions"],
+  "scripts": {
+    "dev:web": "npm --workspace web run dev",
+    "build:web": "npm --workspace web run build",
+    "build:functions": "npm --workspace functions run build",
+    "emulators": "npm exec --yes --package firebase-tools@13.35.1 -- firebase emulators:start --only auth,firestore,functions,hosting",
+    "deploy": "npm run build:web && firebase deploy --only hosting,firestore",
+    "deploy:blaze": "npm run build:web && npm run build:functions && firebase deploy"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "^1.14.6",
+    "@opentelemetry/core": "^2.8.0",
+    "gaxios": {
+      "uuid": "^11.1.1"
+    },
+    "qs": "^6.16.1"
+  },
+  "devDependencies": {
+    "@firebase/app-compat": "^0.5.20",
+    "firebase-admin": "^14.5.0",
+    "firebase-tools": "^15.34.1"
+  }
+}

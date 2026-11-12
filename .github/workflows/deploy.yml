@@ -1,0 +1,47 @@
+name: Deploy Firebase
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm install --workspaces --no-audit --no-fund
+
+      - name: Build web
+        working-directory: web
+        env:
+          VITE_FIREBASE_API_KEY:        ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN:    ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID:     ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MSG_SENDER_ID:  ${{ secrets.VITE_FIREBASE_MSG_SENDER_ID }}
+          VITE_FIREBASE_APP_ID:         ${{ secrets.VITE_FIREBASE_APP_ID }}
+        run: npm run build
+
+      - name: Build functions
+        working-directory: functions
+        run: npm run build
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Deploy
+        uses: w9jds/firebase-action@v14.10.1
+        with:
+          args: deploy --only hosting,functions,firestore --project ${{ secrets.FIREBASE_PROJECT_ID }}
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}

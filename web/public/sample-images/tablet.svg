@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240" viewBox="0 0 320 240">
+  <rect width="320" height="240" rx="16" fill="#eff6ff"/>
+  <rect x="55" y="35" width="210" height="140" rx="12" fill="#dbeafe" stroke="#64748b" stroke-width="3"/>
+  <g fill="#fff" stroke="#94a3b8" stroke-width="2">
+    <ellipse cx="95" cy="75" rx="23" ry="15"/><ellipse cx="160" cy="75" rx="23" ry="15"/><ellipse cx="225" cy="75" rx="23" ry="15"/>
+    <ellipse cx="95" cy="130" rx="23" ry="15"/><ellipse cx="160" cy="130" rx="23" ry="15"/><ellipse cx="225" cy="130" rx="23" ry="15"/>
+  </g>
+  <text x="160" y="196" text-anchor="middle" font-family="sans-serif" font-size="15" font-weight="bold" fill="#1e40af">TABLET / KAPLET</text>
+  <text x="160" y="221" text-anchor="middle" font-family="sans-serif" font-size="13" fill="#92400e">ILUSTRASI SAMPLE - BUKAN FOTO ASLI</text>
+</svg>

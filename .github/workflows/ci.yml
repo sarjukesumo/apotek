@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm install --workspaces --no-audit --no-fund
+
+      - name: Type-check functions
+        working-directory: functions
+        run: npx tsc --noEmit
+
+      - name: Type-check + build web
+        working-directory: web
+        env:
+          VITE_FIREBASE_API_KEY: dummy
+          VITE_FIREBASE_AUTH_DOMAIN: dummy
+          VITE_FIREBASE_PROJECT_ID: dummy
+          VITE_FIREBASE_STORAGE_BUCKET: dummy
+          VITE_FIREBASE_MSG_SENDER_ID: dummy
+          VITE_FIREBASE_APP_ID: dummy
+        run: npm run build
+
+      - name: Build functions
+        working-directory: functions
+        run: npm run build
