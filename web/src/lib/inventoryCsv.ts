@@ -7,6 +7,8 @@ const HEADERS = [
   "supplierName", "purchaseDate", "invoiceNo", "purchasePrice", "poId", "grnId", "code", "active", "sampleOnly",
 ];
 
+export const INVENTORY_IMPORT_HEADERS: readonly string[] = HEADERS;
+
 const HEADER_ALIASES: Record<string, string> = {
   price: "salePrice",
   costPrice: "purchasePrice",
@@ -92,6 +94,26 @@ export function serializeInventoryCsv(products: DemoProduct[], includePurchasePr
     }
   }
   return `\uFEFF${rows.map((row) => row.join(",")).join("\r\n")}`;
+}
+
+// Lists supplier references (code/name) used by batch rows so missing master
+// suppliers can be auto-registered before the import is parsed and validated.
+export function listCsvSupplierRefs(text: string): Array<{ code?: string; name: string }> {
+  const rows = parseCsvRows(text.replace(/^\uFEFF/, ""));
+  if (rows.length < 2) return [];
+  const headers = rows[0].map((header) => HEADER_ALIASES[header.trim()] || header.trim());
+  const nameIndex = headers.indexOf("supplierName");
+  const codeIndex = headers.indexOf("supplierCode");
+  if (nameIndex < 0 && codeIndex < 0) return [];
+  const seen = new Map<string, { code?: string; name: string }>();
+  rows.slice(1).forEach((cells) => {
+    const name = (nameIndex >= 0 ? cells[nameIndex] || "" : "").trim();
+    const code = (codeIndex >= 0 ? cells[codeIndex] || "" : "").trim().toUpperCase();
+    if (!name) return;
+    const key = code || name.toLowerCase();
+    if (!seen.has(key)) seen.set(key, { code: code || undefined, name });
+  });
+  return [...seen.values()];
 }
 
 export function parseInventoryCsv(text: string, tenantId: string, suppliers: ImportSupplier[] = []): DemoProduct[] {

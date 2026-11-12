@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../lib/auth";
 import type { DemoProduct, DemoBatch, DemoSupplier } from "../../lib/demoStore";
-import { parseInventoryCsv, serializeInventoryCsv, type ImportSupplier } from "../../lib/inventoryCsv";
+import { parseInventoryCsv, serializeInventoryCsv, listCsvSupplierRefs, type ImportSupplier } from "../../lib/inventoryCsv";
+import { buildInventoryTemplateWorkbook, downloadWorkbook, excelBufferToCsvText, inventoryCsvToWorkbook } from "../../lib/inventoryExcel";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { db } from "../../lib/firebase";
 import {
   deleteTenantBatch, deleteTenantProduct, importTenantProducts, loadTenantInventory,
   loadTenantSuppliers, migrateLegacyBatchCosts, saveTenantBatch, saveTenantProduct, setTenantProductMarketplace, subscribeTenantInventory,
@@ -225,23 +228,53 @@ export function Inventory() {
     }
   }
 
-  function exportCsv() {
-    const blob = new Blob([serializeInventoryCsv(products, canViewPurchasePrice)], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `stok-obat-${new Date().toISOString().slice(0, 10)}.csv`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+  function exportExcel() {
+    const workbook = inventoryCsvToWorkbook(serializeInventoryCsv(products, canViewPurchasePrice));
+    downloadWorkbook(workbook, `stok-obat-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
-  async function importCsv(file?: File) {
+  function downloadTemplate() {
+    downloadWorkbook(buildInventoryTemplateWorkbook(), "template-impor-stok.xlsx");
+  }
+
+  // Registers suppliers referenced in the file (e.g. legacy PBF column) that
+  // are not yet in the master list, so migration imports work in one pass.
+  async function ensureImportSuppliers(csvText: string): Promise<{ list: ImportSupplier[]; created: number }> {
+    const refs = listCsvSupplierRefs(csvText);
+    const list = [...suppliers];
+    let created = 0;
+    for (const ref of refs) {
+      const exists = list.some((supplier) =>
+        (ref.code && supplier.code?.trim().toUpperCase() === ref.code)
+        || supplier.name.trim().toLowerCase() === ref.name.trim().toLowerCase());
+      if (exists) continue;
+      const docRef = await addDoc(collection(db, `tenants/${tenantId}/suppliers`), {
+        name: ref.name,
+        ...(ref.code ? { code: ref.code } : {}),
+        phone: "",
+        active: true,
+        returnable: false,
+        returnMinDaysBeforeED: 0,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      list.push({ id: docRef.id, code: ref.code, name: ref.name, active: true, returnable: false, returnMinDaysBeforeED: 0 });
+      created += 1;
+    }
+    if (created > 0) setSuppliers(list);
+    return { list, created };
+  }
+
+  async function importFile(file?: File) {
     if (!tenantId || !file) return;
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const imported = parseInventoryCsv(await file.text(), tenantId, suppliers);
+      const isCsv = /\.csv$/i.test(file.name);
+      const text = isCsv ? await file.text() : excelBufferToCsvText(await file.arrayBuffer());
+      const { list: supplierList, created } = await ensureImportSuppliers(text);
+      const imported = parseInventoryCsv(text, tenantId, supplierList);
       await importTenantProducts(tenantId, imported, canViewPurchasePrice);
       setProducts((current) => {
         const merged = new Map(current.map((product) => [product.id, product]));
@@ -253,9 +286,9 @@ export function Inventory() {
         });
         return [...merged.values()];
       });
-      setNotice(`${imported.length} produk berhasil diimpor. Batch impor dicocokkan ke pemasok terdaftar; batch lama yang tidak ada di file tetap dipertahankan.`);
+      setNotice(`${imported.length} produk berhasil diimpor${created > 0 ? ` dan ${created} pemasok baru didaftarkan otomatis` : ""}. Batch impor dicocokkan ke pemasok terdaftar; batch lama yang tidak ada di file tetap dipertahankan.`);
     } catch (importError) {
-      setError(importError instanceof Error ? importError.message : "Gagal mengimpor CSV.");
+      setError(importError instanceof Error ? importError.message : "Gagal mengimpor file.");
     } finally {
       setBusy(false);
     }
@@ -308,19 +341,20 @@ export function Inventory() {
           <p className="text-xs text-ink-400 mt-1">Harga jual per produk · harga beli/HPP dicatat per batch.</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button onClick={exportCsv} disabled={loading || busy} className="btn-secondary">Ekspor CSV</button>
+          <button onClick={exportExcel} disabled={loading || busy} className="btn-secondary">Ekspor Excel</button>
+          <button onClick={downloadTemplate} disabled={busy} className="btn-secondary">Template impor</button>
           {canViewPurchasePrice && <button onClick={() => void migrateLegacyCosts()} disabled={loading || busy} className="btn-secondary">Migrasi data batch</button>}
           <label className={`btn-secondary cursor-pointer ${loading || busy || !tenantId ? "opacity-50 pointer-events-none" : ""}`}>
-            Impor CSV
+            Impor Excel
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
               className="sr-only"
               disabled={loading || busy || !tenantId}
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";
-                void importCsv(file);
+                void importFile(file);
               }}
             />
           </label>
