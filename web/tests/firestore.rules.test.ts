@@ -470,6 +470,20 @@ describe("Username/password account provisioning", () => {
     }));
   });
 
+  it("lets an Owner permanently delete a staff account and its username mapping, but not other owners or tenants", async () => {
+    const owner = signedIn("owner-a");
+    const batch = writeBatch(owner);
+    batch.delete(doc(owner, "userAccess/kasir1-old-uid"));
+    batch.delete(doc(owner, "usernameAccounts/kasir1"));
+    await assertSucceeds(batch.commit());
+
+    // Owner-role access docs and foreign tenants stay protected.
+    await assertFails(deleteDoc(doc(owner, "userAccess/owner-a")));
+    await assertFails(deleteDoc(doc(owner, "userAccess/owner-b")));
+    const ownerB = signedIn("owner-b");
+    await assertFails(deleteDoc(doc(ownerB, "userAccess/staff-a")));
+  });
+
   it("treats the built-in password super admin as a platform admin", async () => {
     const admin = passwordAdmin();
     await assertSucceeds(getDocs(collection(admin, "userAccess")));

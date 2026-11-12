@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../lib/auth";
 import {
-  inviteGoogleUser, loadTenantAccess, removeTenantAccount, updateManagedAccount,
+  deleteAccountPermanently, inviteGoogleUser, loadTenantAccess, removeTenantAccount, updateManagedAccount,
   type AccessInvitation, type AccessProfile,
 } from "../../lib/access";
 import { createPasswordUser, resetPasswordUser, usernameAuthErrorText } from "../../lib/usernameAuth";
@@ -192,6 +192,25 @@ export function TenantAccess() {
     }
   }
 
+  async function deleteAccount(account: Account) {
+    if (account.kind !== "user" || account.role === "OWNER") return;
+    const profile = account as AccessProfile;
+    const label = profile.username || account.email;
+    if (!confirm(`HAPUS PERMANEN akun ${label}?\n\nAkses dan data login aplikasinya dihapus dan tidak bisa dikembalikan.${profile.username ? ` Username "${profile.username}" bisa dipakai ulang.` : ""}\n\nRiwayat transaksi yang sudah tercatat tetap tersimpan.`)) return;
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await deleteAccountPermanently({ uid: account.id, username: profile.username });
+      setNotice(`Akun ${label} dihapus permanen.`);
+      await load();
+    } catch {
+      setError("Akun gagal dihapus. Pastikan Anda masih Owner apotek ini.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <header className="flex items-end justify-between gap-3 flex-wrap">
@@ -351,9 +370,14 @@ export function TenantAccess() {
                             setShowResetPassword(false);
                           }}>Reset password</button>
                         )}
-                        <button className="text-danger-600 hover:underline" disabled={saving} onClick={() => void removeAccess(account)}>
-                          {account.kind === "invitation" ? "Hapus undangan" : "Hapus akses"}
+                        <button className="text-danger-600 hover:underline mr-3" disabled={saving} onClick={() => void removeAccess(account)}>
+                          {account.kind === "invitation" ? "Hapus undangan" : "Nonaktifkan"}
                         </button>
+                        {account.kind === "user" && !owner && (
+                          <button className="text-danger-700 font-semibold hover:underline" disabled={saving} onClick={() => void deleteAccount(account)}>
+                            Hapus akun
+                          </button>
+                        )}
                       </>)}
                     </td>
                   </tr>

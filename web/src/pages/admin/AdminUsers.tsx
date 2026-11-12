@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { useAuth } from "../../lib/auth";
 import { db } from "../../lib/firebase";
-import { inviteGoogleUser, loadManagedAccess, updateManagedAccount } from "../../lib/access";
+import { inviteGoogleUser, loadManagedAccess, updateManagedAccount, deleteAccountPermanently } from "../../lib/access";
 import type { AppRole } from "../../lib/access";
 import { createPasswordUser, resetPasswordUser, usernameAuthErrorText } from "../../lib/usernameAuth";
 
@@ -154,6 +154,24 @@ export function AdminUsers() {
       await load();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Perubahan gagal disimpan.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteAccount(account: Account) {
+    if (account.kind !== "user" || account.role === "ADMIN") return;
+    const label = account.username || account.email;
+    if (!confirm(`HAPUS PERMANEN akun ${label}?\n\nAkses dan data login aplikasinya dihapus dan tidak bisa dikembalikan.${account.username ? ` Username "${account.username}" bisa dipakai ulang.` : ""}\n\nRiwayat transaksi yang sudah tercatat tetap tersimpan.`)) return;
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await deleteAccountPermanently({ uid: account.id, username: account.username });
+      setNotice(`Akun ${label} dihapus permanen.`);
+      await load();
+    } catch {
+      setError("Akun gagal dihapus.");
     } finally {
       setSaving(false);
     }
@@ -345,9 +363,14 @@ export function AdminUsers() {
                           setShowResetPassword(false);
                         }}>Reset password</button>
                       )}
-                      <button className={account.active ? "text-danger-600 hover:underline" : "text-accent-700 hover:underline"} disabled={saving} onClick={() => void toggleActive(account)}>
+                      <button className={account.active ? "text-danger-600 hover:underline mr-3" : "text-accent-700 hover:underline mr-3"} disabled={saving} onClick={() => void toggleActive(account)}>
                         {account.active ? "Nonaktifkan" : "Aktifkan"}
                       </button>
+                      {account.kind === "user" && (
+                        <button className="text-danger-700 font-semibold hover:underline" disabled={saving} onClick={() => void deleteAccount(account)}>
+                          Hapus akun
+                        </button>
+                      )}
                     </>}
                   </td>
                 </tr>

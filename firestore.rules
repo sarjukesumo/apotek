@@ -85,7 +85,10 @@ service cloud.firestore {
         && request.resource.data.role in ["STAFF", "CASHIER"]
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["role", "active", "displayName", "updatedAt"])
       );
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || (
+        isTenantOwner(resource.data.tenantId)
+        && resource.data.role in ["STAFF", "CASHIER"]
+      );
     }
 
     match /userInvitesByEmail/{email} {
@@ -156,7 +159,7 @@ service cloud.firestore {
           "suffix", "authEmail", "active", "updatedAt"
         ])
       );
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || isTenantOwner(resource.data.tenantId);
     }
 
     match /publicTenants/{tenantSlug} {

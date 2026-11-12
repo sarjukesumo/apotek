@@ -1,7 +1,7 @@
 import { User } from "firebase/auth";
 import {
   collection, deleteDoc, doc, getDoc, getDocFromCache, getDocFromServer, getDocs, query, runTransaction, serverTimestamp,
-  setDoc, updateDoc, where,
+  setDoc, updateDoc, where, writeBatch,
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { ADMIN_USERNAME_EMAILS, isUsernameEmail } from "./usernameAuth";
@@ -227,6 +227,16 @@ export async function removeTenantAccount(input: { id: string; kind: "user" | "i
     return;
   }
   await updateDoc(ref, { active: false, updatedAt: serverTimestamp() });
+}
+
+// Permanently removes the access profile (and frees the username for password
+// accounts). The Firebase Auth record itself cannot be deleted client-side,
+// but without these documents it has no access and cannot sign in by username.
+export async function deleteAccountPermanently(input: { uid: string; username?: string }) {
+  const batch = writeBatch(db);
+  batch.delete(doc(db, "userAccess", input.uid));
+  if (input.username) batch.delete(doc(db, "usernameAccounts", input.username));
+  await batch.commit();
 }
 
 export async function createPharmacy(input: {
