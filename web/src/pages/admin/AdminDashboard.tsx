@@ -45,9 +45,9 @@ export function AdminDashboard() {
       </div>
       {loadError && <p role="alert" className="text-sm text-danger-600">Data Firebase gagal dimuat.</p>}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Stat label="Apotek terdaftar" value={String(tenants.length)} />
-        <Stat label="Pengguna aktif" value={String(activeUsers)} />
-        <Stat label="Undangan menunggu" value={String(pendingInvitations)} />
+        <Stat label="Apotek terdaftar" value={String(tenants.length)} to="/admin/tenants" />
+        <Stat label="Pengguna aktif" value={String(activeUsers)} to="/admin/users" />
+        <Stat label="Undangan menunggu" value={String(pendingInvitations)} to="/admin/users" />
       </div>
       <section className="card overflow-hidden">
         <div className="px-4 py-3 flex items-center justify-between border-b border-surface-100">
@@ -81,13 +81,20 @@ export function AdminDashboard() {
   );
 }
 
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="card p-3">
-      <div className="text-[11px] uppercase tracking-wider text-ink-500">{label}</div>
+function Stat({ label, value, hint, to }: { label: string; value: string; hint?: string; to?: string }) {
+  const body = (
+    <>
+      <div className="text-[11px] uppercase tracking-wider text-ink-500 flex items-center justify-between gap-2">
+        <span>{label}</span>
+        {to && <span aria-hidden="true" className="text-ink-300">›</span>}
+      </div>
       <div className="text-lg font-bold text-ink-900 mt-0.5">{value}</div>
       {hint && <div className="text-[10px] text-ink-400">{hint}</div>}
-    </div>
+    </>
   );
+  if (to) {
+    return <Link to={to} className="card p-3 block hover:border-brand-300 transition-colors" title={`Lihat ${label.toLowerCase()}`}>{body}</Link>;
+  }
+  return <div className="card p-3">{body}</div>;
 }
 
