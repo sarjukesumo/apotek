@@ -8,6 +8,8 @@ type Tutorial = {
   title: string;
   image: string;
   alt: string;
+  image2?: string;
+  alt2?: string;
   intro?: string;
   steps: string[];
   tip?: string;
@@ -83,16 +85,22 @@ const tutorials: Tutorial[] = [
     title: "5. Menambah pengguna dan reset password",
     image: "/guide/05-users.png",
     alt: "Halaman Pengguna dan Akses berisi daftar anggota apotek",
-    intro: "Hanya Owner yang bisa melakukan ini.",
+    image2: "/guide/05b-users-form.png",
+    alt2: "Formulir tambah pengguna dengan pilihan Username & password terisi contoh",
+    intro: "Hanya Owner yang bisa melakukan ini. Gambar pertama: daftar pengguna. Gambar kedua: formulir tambah pengguna dengan username & password aplikasi.",
     steps: [
       "Klik menu \"Pengguna & Akses\" di sebelah kiri.",
-      "Klik tombol hijau \"+ Tambah pengguna\" di kanan atas.",
-      "Pilih \"Username & password\" (paling mudah untuk karyawan), lalu isi: username (huruf kecil, contoh: kasir1), password (minimal 6 karakter, ada huruf dan angka), dan nama karyawan.",
-      "Pilih perannya: \"Kasir\" untuk yang melayani penjualan, \"Staf Apotek\" untuk yang mengurus stok. Klik \"Buat akun\".",
-      "Beritahukan username dan password itu ke karyawan — mereka langsung bisa masuk di batam-farma.web.app.",
-      "Karyawan lupa password? Cari namanya di daftar, klik \"Reset password\", ketik password baru, klik \"Simpan\". Beritahukan password barunya.",
+      "Klik tombol hijau \"+ Tambah pengguna\" di kanan atas — muncul formulir seperti gambar kedua.",
+      "Pastikan pilihan \"Username & password\" yang tercentang (paling mudah untuk karyawan; tidak perlu email).",
+      "Isi Username: huruf kecil semua tanpa spasi, contoh: kasir1 atau budi.",
+      "Isi Password: minimal 6 karakter dan harus ada huruf serta angka, contoh: Budi123. Klik \"Lihat\" untuk memeriksa ketikan.",
+      "Isi Nama karyawan, lalu pilih perannya: \"Kasir\" untuk yang melayani penjualan, \"Staf Apotek\" untuk yang mengurus stok.",
+      "Klik tombol hijau \"Buat akun\". Nama karyawan langsung muncul di daftar dengan tulisan \"Username: ...\".",
+      "Beritahukan username dan password itu ke karyawan — mereka langsung bisa masuk di batam-farma.web.app memakai tab Username.",
+      "Karyawan lupa password? Cari namanya di daftar, klik \"Reset password\", ketik password baru, klik \"Simpan\", lalu beritahukan password barunya.",
       "Karyawan berhenti bekerja? Klik \"Nonaktifkan\" (bisa diaktifkan lagi) atau \"Hapus akun\" (permanen, riwayat transaksi tetap tersimpan).",
     ],
+    tip: "Satu karyawan satu akun — jangan berbagi username. Dengan begitu setiap transaksi tercatat atas nama kasir yang benar.",
     roles: ["OWNER"],
     link: { to: "/app/users", label: "Kelola pengguna" },
   },
@@ -447,6 +455,14 @@ export function UserGuide() {
               loading="lazy"
               className="mt-4 w-full rounded-lg border border-surface-200 shadow-sm"
             />
+            {tutorial.image2 && (
+              <img
+                src={tutorial.image2}
+                alt={tutorial.alt2 || ""}
+                loading="lazy"
+                className="mt-3 w-full rounded-lg border border-surface-200 shadow-sm"
+              />
+            )}
             <ol className="mt-4 space-y-3">
               {tutorial.steps.map((step, index) => (
                 <li key={index} className="flex gap-3">
