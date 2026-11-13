@@ -48,14 +48,23 @@ npm run dev:web
 ### 6. Login username & password aplikasi
 - Provider **Email/Password** harus aktif di Firebase Authentication.
 - Setiap username dipetakan ke email internal `username.<suffix acak>@u.batam-farma.app` melalui dokumen `usernameAccounts/{username}` (boleh `get` publik untuk lookup pra-login, `list` ditutup). Password hanya tersimpan di Firebase Authentication, tidak pernah di Firestore.
-- Admin (menu `/admin/users`) dan Owner (menu `/app/users`) membuat akun password: akun Auth dibuat lewat app sekunder (sesi admin tidak berubah), lalu `usernameAccounts` + `userAccess` ditulis satu batch yang divalidasi Rules (Owner hanya Staf/Kasir untuk tenant sendiri).
+- Admin (menu `/admin/users`) dan Owner (menu `/app/users`) membuat akun password: akun Auth dibuat lewat app sekunder (sesi admin tidak berubah), lalu `usernameAccounts` + `userAccess` ditulis satu batch yang divalidasi Rules (Owner boleh menambah Owner/Staf/Kasir untuk tenant sendiri; akun Owner aktif tetap dilindungi dari perubahan oleh Owner lain).
 - **Reset password** (Admin/Owner): kredensial Auth baru diterbitkan (email internal + password baru), mapping username dialihkan, dan `userAccess` lama dinonaktifkan. Akun Auth lama menjadi yatim tanpa akses.
 - Kebijakan password: minimal 6 karakter, memuat huruf dan angka.
+
+### Pengujian lokal dan pemuatan halaman
+
+- Halaman dimuat terpisah saat rutenya dibuka. Navigasi tetap tersedia saat halaman berikutnya dimuat; kegagalan pemuatan ditampilkan dengan tombol muat ulang manual, tanpa memuat ulang otomatis saat ada transaksi.
+- Login memakai animasi CSS yang menghormati reduced motion, tanpa memuat library animasi halaman operasional. Library PDF baru dieksekusi saat pengguna meminta PDF nota.
+- PWA tetap melakukan precache seluruh aset build agar halaman yang belum dibuka tersedia offline setelah instalasi service worker selesai. Pemecahan halaman mengurangi kode yang perlu dieksekusi saat masuk, bukan menghilangkan unduhan latar belakang untuk offline.
+- Untuk pengujian browser tanpa data produksi, set `VITE_FIREBASE_EMULATORS=true` dan gunakan `VITE_FIREBASE_PROJECT_ID` dengan awalan `demo-`, sama dengan project ID emulator. Gunakan konfigurasi Firebase dummy dan kosongkan measurement ID. Build emulator menolak project non-demo dan mengarahkan Auth (termasuk pembuatan akun sekunder), Firestore, dan Storage ke loopback port 9099, 8080, dan 9199. Port dapat diubah lewat variabel emulator di `web/.env.example` agar tidak mengganggu emulator yang sudah berjalan. Jangan deploy build ini.
+- Jalankan `npm --workspace web run test:rules:run` saat emulator Firestore aktif. Untuk backend, jalankan `npm run build:functions` lalu `node --test functions\test\*.test.cjs`.
+- Ukur build produksi, bukan dev server. Hasil Lighthouse lokal dengan simulasi ponsel/jaringan lambat belum membuktikan latensi staging, login Google nyata, printer fisik, atau performa multi-PC.
 
 ## Konfigurasi Midtrans
 
 ### Snap (frontend)
-`index.html` sudah memuat snap.js sandbox. Untuk production, ganti:
+Pembayaran online sedang dinonaktifkan; script Snap tidak dimuat secara global agar login dan operasional tidak bergantung pada layanan pembayaran. Jika fitur diaktifkan kembali, muat SDK hanya pada halaman pembayaran dengan client key yang sesuai. Contoh untuk production:
 ```html
 <script src="https://app.midtrans.com/snap/snap.js" data-client-key="<CLIENT_KEY>"></script>
 ```

@@ -8,7 +8,7 @@ import {
   signInWithEmailAndPassword, signOut, updateProfile,
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, writeBatch } from "firebase/firestore";
-import { auth, db, firebaseConfig } from "./firebase";
+import { auth, connectLocalAuth, db, firebaseConfig } from "./firebase";
 import type { AppRole } from "./access";
 
 export const USERNAME_EMAIL_DOMAIN = "u.batam-farma.app";
@@ -97,6 +97,7 @@ async function provisionAuthAccount(authEmail: string, password: string, display
   const secondary = initializeApp(firebaseConfig, `provision-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   try {
     const secondaryAuth = initializeAuth(secondary, { persistence: inMemoryPersistence });
+    connectLocalAuth(secondaryAuth);
     const credential = await createUserWithEmailAndPassword(secondaryAuth, authEmail, password);
     if (displayName) {
       try { await updateProfile(credential.user, { displayName }); } catch { /* cosmetic only */ }

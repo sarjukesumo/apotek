@@ -131,6 +131,56 @@ describe("Firestore tenant isolation and privacy", () => {
 });
 
 describe("Firestore tenant roles and paused features", () => {
+  it("allows tenant stock history to be appended with a stock change and prevents edits", async () => {
+    const staff = signedIn("staff-a");
+    const productRef = doc(staff, "tenants/tenant-a/products/product-a");
+    const batchRef = doc(staff, "tenants/tenant-a/inventoryBatches/batch-a");
+    const movementRef = doc(staff, "tenants/tenant-a/inventoryMovements/movement-a");
+    await assertSucceeds(runTransaction(staff, async (transaction) => {
+      const [product, batch] = await Promise.all([transaction.get(productRef), transaction.get(batchRef)]);
+      transaction.update(productRef, { stock: 12 });
+      transaction.update(batchRef, { qty: 12 });
+      transaction.set(movementRef, {
+        tenantId: "tenant-a",
+        productId: "product-a",
+        productName: "Obat A",
+        batchId: "batch-a",
+        batchNo: "BATCH-A",
+        movementType: "ADJUSTMENT",
+        quantityDelta: 2,
+        batchQtyBefore: batch.data()?.qty,
+        batchQtyAfter: 12,
+        productStockBefore: product.data()?.stock,
+        productStockAfter: 12,
+        referenceLabel: "Kelola batch",
+        actorUid: "staff-a",
+        actorName: "Staf A",
+        createdAt: serverTimestamp(),
+      });
+    }));
+    await assertSucceeds(getDoc(movementRef));
+    await assertFails(updateDoc(movementRef, { quantityDelta: 3 }));
+    await assertFails(deleteDoc(movementRef));
+    await assertFails(getDoc(doc(signedIn("cashier-a"), "tenants/tenant-a/inventoryMovements/movement-a")));
+
+    await assertFails(setDoc(doc(staff, "tenants/tenant-a/inventoryMovements/unpaired"), {
+      tenantId: "tenant-a",
+      productId: "product-a",
+      productName: "Obat A",
+      batchId: "batch-a",
+      batchNo: "BATCH-A",
+      movementType: "ADJUSTMENT",
+      quantityDelta: 1,
+      batchQtyBefore: 10,
+      batchQtyAfter: 11,
+      productStockBefore: 10,
+      productStockAfter: 11,
+      actorUid: "staff-a",
+      actorName: "Staf A",
+      createdAt: serverTimestamp(),
+    }));
+  });
+
   it("lets a tenant Owner query their invitations and create a new staff invite", async () => {
     const owner = signedIn("owner-a");
     await assertFails(getDoc(doc(owner, "userInvitesByEmail/new-person@example.test")));
@@ -152,6 +202,38 @@ describe("Firestore tenant roles and paused features", () => {
     }));
   });
 
+  it("lets a tenant Owner invite another Owner", async () => {
+    const owner = signedIn("owner-a");
+    const inviteRef = doc(owner, "userInvitesByEmail/new-owner@example.test");
+    await assertSucceeds(setDoc(inviteRef, {
+      email: "new-owner@example.test",
+      displayName: "Owner Baru",
+      role: "OWNER",
+      tenantId: "tenant-a",
+      active: true,
+      status: "PENDING",
+      createdBy: "owner-a",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }));
+
+    const newOwner = environment.authenticatedContext("new-owner", {
+      email: "new-owner@example.test", email_verified: true,
+    }).firestore();
+    const newOwnerInviteRef = doc(newOwner, "userInvitesByEmail/new-owner@example.test");
+    const accessRef = doc(newOwner, "userAccess/new-owner");
+    await assertSucceeds(runTransaction(newOwner, async (transaction) => {
+      const invite = await transaction.get(newOwnerInviteRef);
+      expect(invite.data()?.role).toBe("OWNER");
+      transaction.set(accessRef, {
+        uid: "new-owner", email: "new-owner@example.test", tenantId: "tenant-a", role: "OWNER", active: true,
+      });
+      transaction.update(newOwnerInviteRef, {
+        status: "CLAIMED", claimedUid: "new-owner", claimedAt: new Date(), updatedAt: new Date(),
+      });
+    }));
+  });
+
   it("lets a tenant Owner update an existing invite without changing protected fields", async () => {
     const owner = signedIn("owner-a");
     const inviteRef = doc(owner, "userInvitesByEmail/new-staff@example.test");
@@ -163,6 +245,14 @@ describe("Firestore tenant roles and paused features", () => {
       updatedAt: new Date(),
     }));
     expect((await assertSucceeds(getDoc(inviteRef))).data()?.displayName).toBe("Staf Diperbarui");
+    await assertSucceeds(updateDoc(inviteRef, {
+      displayName: "Owner Baru",
+      role: "OWNER",
+      active: true,
+      status: "PENDING",
+      updatedAt: new Date(),
+    }));
+    expect((await assertSucceeds(getDoc(inviteRef))).data()?.role).toBe("OWNER");
   });
 
   it("lets Staff lower stock but denies cost-price edits", async () => {
@@ -398,7 +488,7 @@ describe("Username/password account provisioning", () => {
     }));
   });
 
-  it("lets an Owner provision a staff password account for their own tenant in one batch", async () => {
+  it("lets an Owner provision a staff or Owner password account for their own tenant in one batch", async () => {
     const owner = signedIn("owner-a");
     const batch = writeBatch(owner);
     batch.set(doc(owner, "usernameAccounts/staf2"), {
@@ -411,10 +501,20 @@ describe("Username/password account provisioning", () => {
       displayName: "Staf Dua", role: "STAFF", tenantId: "tenant-a", active: true, loginType: "PASSWORD",
       createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     });
+    batch.set(doc(owner, "usernameAccounts/owner2"), {
+      username: "owner2", suffix: "aaaa999999", authEmail: "owner2.aaaa999999@u.batam-farma.app",
+      tenantId: "tenant-a", active: true, createdBy: "owner-a",
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    });
+    batch.set(doc(owner, "userAccess/owner2-uid"), {
+      uid: "owner2-uid", email: "owner2.aaaa999999@u.batam-farma.app", username: "owner2",
+      displayName: "Owner Dua", role: "OWNER", tenantId: "tenant-a", active: true, loginType: "PASSWORD",
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    });
     await assertSucceeds(batch.commit());
   });
 
-  it("denies an Owner provisioning password accounts for another tenant or with Owner role", async () => {
+  it("denies an Owner provisioning password accounts for another tenant", async () => {
     const owner = signedIn("owner-a");
     const crossTenant = writeBatch(owner);
     crossTenant.set(doc(owner, "usernameAccounts/mole"), {
@@ -422,17 +522,6 @@ describe("Username/password account provisioning", () => {
       tenantId: "tenant-b", active: true, createdBy: "owner-a",
     });
     await assertFails(crossTenant.commit());
-
-    const escalate = writeBatch(owner);
-    escalate.set(doc(owner, "usernameAccounts/boss2"), {
-      username: "boss2", suffix: "cccc333333", authEmail: "boss2.cccc333333@u.batam-farma.app",
-      tenantId: "tenant-a", active: true, createdBy: "owner-a",
-    });
-    escalate.set(doc(owner, "userAccess/boss2-uid"), {
-      uid: "boss2-uid", email: "boss2.cccc333333@u.batam-farma.app", username: "boss2",
-      role: "OWNER", tenantId: "tenant-a", active: true, loginType: "PASSWORD",
-    });
-    await assertFails(escalate.commit());
 
     // The access doc must point at the mapping written in the same batch.
     await assertFails(setDoc(doc(owner, "userAccess/forged-uid"), {

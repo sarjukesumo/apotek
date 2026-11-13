@@ -554,6 +554,13 @@ export interface DemoProduct {
   active?: boolean;
   sampleOnly?: boolean;
   code?: string;
+  legacyStockSummary?: {
+    opening: number;
+    adjustment: number;
+    incoming: number;
+    outgoing: number;
+    sales?: number;
+  };
   marketplaceEnabled: boolean;
   minStock: number;
   batches: DemoBatch[];

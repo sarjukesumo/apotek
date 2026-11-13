@@ -95,7 +95,11 @@ export function LiveSupplierReturns() {
     setError(null);
     setNotice(null);
     try {
-      await createSupplierReturn({ tenantId, supplierId, batchId, qty, reason, notes, createdBy: user.uid });
+      await createSupplierReturn({
+        tenantId, supplierId, batchId, qty, reason, notes,
+        createdBy: user.uid,
+        createdByName: user.displayName || user.email || "Pengguna",
+      });
       setNotice("Retur dicatat dan stok batch berhasil dikurangi.");
       setBatchId("");
       setQty(1);

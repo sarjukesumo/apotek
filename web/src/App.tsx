@@ -1,25 +1,28 @@
+import { lazy } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./lib/auth";
-import { Login } from "./pages/Login";
-import { AdminShell } from "./pages/admin/AdminShell";
-import { AdminDashboard } from "./pages/admin/AdminDashboard";
-import { AdminConfig } from "./pages/admin/AdminConfig";
-import { AdminTenants } from "./pages/admin/AdminTenants";
-import { AdminUsers } from "./pages/admin/AdminUsers";
-import { TenantShell } from "./pages/app/TenantShell";
-import { PharmacyDashboard } from "./pages/app/PharmacyDashboard";
-import { UserGuide } from "./pages/app/UserGuide";
-import { POS } from "./pages/app/POS";
-import { Inventory } from "./pages/app/Inventory";
-import { OrdersStaff } from "./pages/app/OrdersStaff";
-import { PharmacySettings } from "./pages/app/PharmacySettings";
-import { TenantAccess } from "./pages/app/TenantAccess";
-import { PrinterSettings } from "./pages/app/PrinterSettings";
-import { PharmacyFinance } from "./pages/app/PharmacyFinance";
-import { PharmacyReports } from "./pages/app/PharmacyReports";
-import { BusinessContacts } from "./pages/app/BusinessContacts";
-import { LiveSupplierReturns } from "./pages/app/LiveSupplierReturns";
-import { OrderStatus } from "./pages/marketplace/OrderStatus";
+import { RouteContent } from "./components/RouteContent";
+
+const Login = lazy(() => import("./pages/Login").then((module) => ({ default: module.Login })));
+const AdminShell = lazy(() => import("./pages/admin/AdminShell").then((module) => ({ default: module.AdminShell })));
+const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard").then((module) => ({ default: module.AdminDashboard })));
+const AdminConfig = lazy(() => import("./pages/admin/AdminConfig").then((module) => ({ default: module.AdminConfig })));
+const AdminTenants = lazy(() => import("./pages/admin/AdminTenants").then((module) => ({ default: module.AdminTenants })));
+const AdminUsers = lazy(() => import("./pages/admin/AdminUsers").then((module) => ({ default: module.AdminUsers })));
+const TenantShell = lazy(() => import("./pages/app/TenantShell").then((module) => ({ default: module.TenantShell })));
+const PharmacyDashboard = lazy(() => import("./pages/app/PharmacyDashboard").then((module) => ({ default: module.PharmacyDashboard })));
+const UserGuide = lazy(() => import("./pages/app/UserGuide").then((module) => ({ default: module.UserGuide })));
+const POS = lazy(() => import("./pages/app/POS").then((module) => ({ default: module.POS })));
+const Inventory = lazy(() => import("./pages/app/Inventory").then((module) => ({ default: module.Inventory })));
+const OrdersStaff = lazy(() => import("./pages/app/OrdersStaff").then((module) => ({ default: module.OrdersStaff })));
+const PharmacySettings = lazy(() => import("./pages/app/PharmacySettings").then((module) => ({ default: module.PharmacySettings })));
+const TenantAccess = lazy(() => import("./pages/app/TenantAccess").then((module) => ({ default: module.TenantAccess })));
+const PrinterSettings = lazy(() => import("./pages/app/PrinterSettings").then((module) => ({ default: module.PrinterSettings })));
+const PharmacyFinance = lazy(() => import("./pages/app/PharmacyFinance").then((module) => ({ default: module.PharmacyFinance })));
+const PharmacyReports = lazy(() => import("./pages/app/PharmacyReports").then((module) => ({ default: module.PharmacyReports })));
+const BusinessContacts = lazy(() => import("./pages/app/BusinessContacts").then((module) => ({ default: module.BusinessContacts })));
+const LiveSupplierReturns = lazy(() => import("./pages/app/LiveSupplierReturns").then((module) => ({ default: module.LiveSupplierReturns })));
+const OrderStatus = lazy(() => import("./pages/marketplace/OrderStatus").then((module) => ({ default: module.OrderStatus })));
 
 function Guard({ children, predicate, redirect = "/login" }: { children: JSX.Element; predicate: () => boolean; redirect?: string }) {
   const ready = useAuth((s) => s.ready);
@@ -54,6 +57,7 @@ export default function App() {
   const user = useAuth((s) => s.user);
 
   return (
+    <RouteContent>
     <Routes>
       <Route path="/" element={<Navigate to="/app" replace />} />
       <Route path="/login" element={<Login />} />
@@ -109,6 +113,7 @@ export default function App() {
 
       <Route path="*" element={<div className="p-10">404</div>} />
     </Routes>
+    </RouteContent>
   );
 }
 

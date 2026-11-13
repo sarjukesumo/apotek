@@ -603,7 +603,11 @@ export function POS() {
   }, [total]);
 
   return (
-    <div className="grid lg:grid-cols-[1fr_400px] gap-4 lg:h-[calc(100vh-100px)]">
+    <div className={`grid lg:grid-cols-[1fr_400px] gap-4 lg:h-[calc(100vh-100px)] ${
+      !isOnline || queuedSales.length > 0 || !persistentFirestoreCache
+        ? "lg:grid-rows-[auto_auto_minmax(0,1fr)]"
+        : "lg:grid-rows-[auto_minmax(0,1fr)]"
+    }`}>
       <div className={`card lg:col-span-2 p-3 text-sm ${training ? "border-2 border-warn-500 bg-warn-50" : ""}`}>
         <div className="flex items-center justify-between gap-3">
           <strong>{training ? "LATIHAN — BUKAN TRANSAKSI NYATA" : "POS operasional"}</strong>
@@ -766,8 +770,8 @@ export function POS() {
       </section>
 
       {/* ===== Right: cart ===== */}
-      <aside className="card flex flex-col min-h-0">
-        <div className="px-4 py-3 border-b border-surface-100 flex items-center justify-between">
+      <aside className="card flex flex-col min-h-0 lg:overflow-y-auto">
+        <div className="px-4 py-3 border-b border-surface-100 flex items-center justify-between shrink-0">
           <div>
             <h2 className="font-bold text-lg">🛒 Keranjang</h2>
             <div className="text-xs text-ink-500">{itemCount} item · {cart.length} produk</div>
@@ -780,7 +784,7 @@ export function POS() {
         </div>
 
         {/* Items */}
-        <div className="flex-1 overflow-y-auto px-2 py-2">
+        <div className="flex-1 min-h-60 overflow-y-auto px-2 py-2">
           {cart.length === 0 ? (
             <div className="text-center text-ink-400 py-12 text-sm">
               <div className="text-5xl mb-3">🛒</div>
@@ -835,7 +839,7 @@ export function POS() {
         </div>
 
         {/* Footer: totals + payment */}
-        <div className="border-t border-surface-100 px-4 py-3 space-y-2 bg-white">
+        <div className="border-t border-surface-100 px-4 py-3 space-y-2 bg-white shrink-0">
           {/* Customer info (optional) */}
           <details className="group" open={customerInfoOpen} onToggle={(event) => setCustomerInfoOpen(event.currentTarget.open)}>
             <summary className="flex items-center justify-between cursor-pointer text-xs font-medium text-ink-600 hover:text-brand-600 select-none">

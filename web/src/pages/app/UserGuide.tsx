@@ -78,9 +78,13 @@ const tutorials: Tutorial[] = [
     steps: [
       "Klik menu \"Inventory\" di sebelah kiri.",
       "Untuk memeriksa stok: ketik nama obat di kotak pencarian. Terlihat jumlah stok, harga, dan tanggal kedaluwarsanya.",
+      "Kolom Stok awal, Ajust, Transaksi, Masuk, dan Keluar menunjukkan mutasi hari ini (WIB) per produk. Transaksi adalah jumlah unit penjualan POS dan sudah termasuk dalam Keluar; Ajust adalah penyesuaian yang sudah termasuk dalam Masuk/Keluar. Geser tabel ke samping jika kolom belum terlihat.",
+      "Stok awal mencakup barang expired, sedangkan kolom Stok hanya barang belum expired. Ringkasan berdasarkan mutasi yang tercatat di server; penjualan offline dihitung saat sinkron dan ringkasan menunggu jika masih ada antrean lokal.",
       "Untuk menambah obat baru: klik tombol hijau \"+ Produk Baru\", isi nama obat, harga jual, dan satuan, lalu simpan.",
       "Saat barang datang dari pemasok: buka produknya, tambahkan BATCH baru — isi jumlah, tanggal kedaluwarsa (lihat tulisan EXP/ED di kemasan), dan nama pemasok.",
       "Selalu periksa tanggal kedaluwarsa sebelum menyimpan. Tanggal ini dipakai aplikasi untuk mengingatkan obat yang hampir kedaluwarsa.",
+      "Untuk melihat riwayat mutasi: cari produk di Inventory, klik \"Kelola\", lalu pilih \"Lihat riwayat stok\". Riwayat menampilkan waktu, petugas, jenis transaksi, nomor batch, perubahan jumlah batch dan total stok sebelum/sesudah.",
+      "Riwayat mutasi mulai tercatat sejak fitur ini diaktifkan. Transaksi atau perubahan stok yang terjadi sebelumnya tidak ditampilkan di riwayat ini.",
       "Untuk memasukkan banyak produk sekaligus: klik \"Template impor\" untuk mengunduh file Excel contoh, isi di Excel, lalu klik \"Impor Excel\". Tombol \"Ekspor Excel\" mengunduh seluruh daftar stok.",
     ],
     roles: ["OWNER", "STAFF"],
@@ -97,14 +101,21 @@ const tutorials: Tutorial[] = [
       "Klik \"Ekspor Excel\" untuk MENGUNDUH seluruh stok sebagai file Excel — berguna untuk arsip atau memeriksa data di komputer.",
       "Untuk MEMASUKKAN data: klik \"Template impor\". File bernama template-impor-stok.xlsx terunduh ke folder Download.",
       "Buka file itu di Excel. Di bagian bawah ada 2 lembar (sheet): \"Stok\" berisi 2 baris contoh yang bisa ditiru, dan \"Petunjuk\" berisi penjelasan setiap kolom dalam bahasa Indonesia.",
-      "Isi SATU BARIS untuk SATU OBAT di sheet Stok, meniru baris contoh (lihat gambar kedua — kolom kuning). Kolom terpenting: name = nama obat, salePrice = HARGA JUAL per satuan (bukan harga beli!), rxRequired = true untuk obat resep / false untuk lainnya, marketplaceEnabled = false.",
-      "Kolom stok: qty = jumlah stok, batchNo = isi MIGRASI, sourceType = isi OPENING_STOCK, expiryISO = tanggal kedaluwarsa dengan format 2027-06-30. Belum tahu ED-nya? Isi 2030-12-31 dulu, nanti dikoreksi di Inventory.",
-      "Kolom pelengkap (boleh kosong): code = kode obat, unit = satuan (TABLET/PCS/STRIP), supplierName = nama PBF/pemasok (otomatis didaftarkan ke menu Pemasok), purchasePrice = harga beli/HPP, minStock = batas stok minimum.",
-      "Selesai mengisi: HAPUS 2 baris contoh bawaan template agar tidak ikut masuk, lalu simpan file (Ctrl+S).",
-      "Kembali ke aplikasi, klik \"Impor Excel\", pilih file tadi, tunggu sampai muncul pesan hijau \"... produk berhasil diimpor\".",
-      "Jika muncul pesan merah, baca nomor barisnya (contoh: \"Baris 5: ...\"), perbaiki baris itu di Excel, simpan, lalu impor ulang. Impor boleh diulang — data yang sama diperbarui, tidak menjadi dobel.",
+      "Isi data pada sheet \"Stok\" dan hapus dua baris contoh sebelum mengimpor. Satu baris mewakili satu produk dan satu batch stok. Jika satu produk punya beberapa batch atau tanggal kedaluwarsa berbeda, buat beberapa baris dengan nama produk yang sama dan isi data batch masing-masing. Samakan data produk pada semua baris tersebut.",
+      "Kolom produk wajib: name = nama obat; salePrice = harga JUAL per satuan, bukan harga beli (isi angka tanpa pemisah ribuan); rxRequired = TRUE jika wajib resep dokter, FALSE jika tidak; marketplaceEnabled = FALSE karena marketplace sedang nonaktif. Kolom TRUE/FALSE harus diisi, tidak boleh kosong.",
+      "Kolom produk pelengkap: category = kategori, misalnya RESEP atau ALKES (kosong menjadi \"Lainnya\"); unit = satuan, misalnya TABLET, PCS, atau STRIP (kosong menjadi pcs); minStock = batas stok minimum untuk pengingat (kosong menjadi 0); code = kode produk.",
+      "Kolom tampilan produk yang boleh dikosongkan: desc = keterangan; emoji = ikon; gradient = warna latar; imageUrl = alamat gambar. Kolom active menentukan produk aktif (kosong berarti aktif), sedangkan sampleOnly menandai data contoh/latihan (kosong berarti bukan data contoh). Untuk produk biasa, gunakan active=TRUE dan sampleOnly=FALSE.",
+      "Untuk produk baru, biarkan id dan batchId kosong agar dibuat otomatis. Jika sedang memperbarui produk/batch yang sudah ada, pertahankan id dan batchId dari file Ekspor Excel supaya data yang sudah ada dikenali.",
+      "Kolom stok batch: qty = jumlah unit stok (angka nol atau lebih); batchNo = nomor batch, atau isi MIGRASI untuk stok awal yang belum memiliki nomor; expiryISO = tanggal kedaluwarsa/ED dengan format YYYY-MM-DD, misalnya 2027-06-30. Jika belum tahu ED, petunjuk template menyarankan 2030-12-31 sementara; segera periksa dan koreksi di Inventory.",
+      "Template mengikuti urutan data lama dan tetap menyertakan kolom wajib aplikasi. saldo adalah total seluruh batch per produk; qty adalah jumlah batch yang disimpan saat impor. Ulangi ringkasan awal/ajust/terima/keluar yang sama pada setiap baris batch produk.",
+      "Angka awal/ajust/terima/keluar yang diimpor disimpan sebagai ringkasan lama, bukan nota atau transaksi POS. Lihat ringkasan tersebut melalui Kelola produk; kolom riwayat pada ekspor mempertahankannya saat file diimpor kembali.",
+      "Kolom sourceType = asal stok. Untuk memasukkan stok awal, isi OPENING_STOCK. Pilihan lain yang dikenali: PURCHASE (pembelian), TRANSFER (transfer), DONATION (donasi), dan UNKNOWN (belum diketahui). Baris yang berisi data batch wajib memiliki batchNo dan expiryISO.",
+      "Kolom pemasok: supplierName = nama pemasok/PBF; pemasok yang belum terdaftar akan dibuat otomatis saat impor. supplierCode = kode pemasok, jika ada. supplierId = ID pemasok yang sudah terdaftar; biasanya boleh dikosongkan jika memakai nama atau kode.",
+      "Kolom pembelian: purchasePrice = harga beli/HPP per unit, bukan harga jual; purchaseDate = tanggal pembelian/diterima dengan format YYYY-MM-DD; invoiceNo = nomor faktur; poId = nomor Purchase Order; grnId = nomor Goods Received Note. invoiceNo, poId, dan grnId boleh dikosongkan. Jika sourceType=PURCHASE, pemasok harus tersedia, dan purchaseDate serta purchasePrice wajib diisi.",
+      "Simpan file (Ctrl+S), kembali ke aplikasi, klik \"Impor Excel\", pilih file, lalu tunggu pesan hijau \"... produk berhasil diimpor\". Impor file baru sebaiknya dilakukan satu kali. Jangan mengimpor ulang baris produk/batch baru yang ID-nya kosong setelah berhasil, karena ID baru dapat dibuat lagi. Untuk memperbarui data yang sudah diimpor, gunakan ID dari Ekspor Excel.",
+      "Jika muncul pesan merah, baca nomor baris dan kolom yang disebutkan, perbaiki di Excel, simpan, lalu coba lagi. Jika tidak yakin apakah impor sebelumnya sudah berhasil, periksa dulu daftar Inventory sebelum mengimpor ulang.",
     ],
-    tip: "Satu obat dengan beberapa batch (ED berbeda) ditulis dalam beberapa baris dengan kolom name yang sama. Tanggal boleh diketik sebagai tanggal Excel biasa — aplikasi mengerti keduanya.",
+    tip: "Tanggal ED dan purchaseDate boleh diketik sebagai tanggal Excel biasa atau teks YYYY-MM-DD. Harga beli/HPP dapat dibatasi sesuai akses akun. Periksa kembali nama obat, harga jual, jumlah stok, dan ED sebelum impor.",
     roles: ["OWNER", "STAFF"],
     link: { to: "/app/inventory", label: "Buka Inventory" },
   },
@@ -121,7 +132,7 @@ const tutorials: Tutorial[] = [
       "Pastikan pilihan \"Username & password\" yang tercentang (paling mudah untuk karyawan; tidak perlu email).",
       "Isi Username: huruf kecil semua tanpa spasi, contoh: kasir1 atau budi.",
       "Isi Password: minimal 6 karakter dan harus ada huruf serta angka, contoh: Budi123. Klik \"Lihat\" untuk memeriksa ketikan.",
-      "Isi Nama karyawan, lalu pilih perannya: \"Kasir\" untuk yang melayani penjualan, \"Staf Apotek\" untuk yang mengurus stok.",
+      "Isi nama pengguna, lalu pilih perannya: \"Owner\" untuk akses penuh, \"Kasir\" untuk melayani penjualan, atau \"Staf Apotek\" untuk mengurus stok.",
       "Klik tombol hijau \"Buat akun\". Nama karyawan langsung muncul di daftar dengan tulisan \"Username: ...\".",
       "Beritahukan username dan password itu ke karyawan — mereka langsung bisa masuk di batam-farma.web.app memakai tab Username.",
       "Karyawan lupa password? Cari namanya di daftar, klik \"Reset password\", ketik password baru, klik \"Simpan\", lalu beritahukan password barunya.",
@@ -213,6 +224,7 @@ const ownerGuide: GuideSection[] = [
       "Produk bertanda SAMPLE hanya untuk contoh: tidak muncul di POS dan tidak boleh dijual. Harga/batch/ED contoh bukan data asli; stok contoh ikut laporan sampai dibersihkan.",
       "Catat batch beserta tanggal kedaluwarsa dan pemasoknya. Periksa tanggal sebelum menyimpan.",
       "Saat online dan aplikasi terbuka, perubahan stok dan batch diterima otomatis. Tidak perlu memuat ulang seluruh aplikasi setelah setiap penjualan.",
+      "Buka Kelola pada produk, lalu Lihat riwayat stok untuk memeriksa penjualan, penerimaan pembelian, impor, penyesuaian, retur, dan penghapusan batch beserta petugas serta perubahan jumlah. Riwayat tersedia sejak fitur diaktifkan; perubahan sebelumnya tidak dapat direkonstruksi.",
       "Untuk data lama, jalankan Migrasi data batch sebelum transaksi pertama.",
     ],
     link: { to: "/app/inventory", label: "Buka Inventory" },
@@ -617,7 +629,7 @@ export function UserGuide() {
           </div>
         </div>
         <p className="mt-3 text-xs leading-5 text-ink-500">
-          Owner mengatur akun Staf dan Kasir melalui menu Pengguna &amp; Akses. Menu yang tidak termasuk peranmu
+          Owner mengatur akun Owner, Staf, dan Kasir melalui menu Pengguna &amp; Akses. Berikan peran Owner hanya kepada orang tepercaya karena memiliki akses penuh. Menu yang tidak termasuk peranmu
           akan ditolak meskipun alamat halamannya dibuka langsung.
         </p>
       </section>}

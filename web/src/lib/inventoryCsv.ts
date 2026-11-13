@@ -1,10 +1,14 @@
 import type { DemoBatch, DemoProduct } from "./demoStore";
+import type { DailyInventorySummary } from "./dailyInventory";
 
 const HEADERS = [
-  "id", "name", "category", "salePrice", "unit", "minStock", "rxRequired",
-  "marketplaceEnabled", "desc", "emoji", "gradient", "imageUrl", "batchId",
-  "batchNo", "qty", "expiryISO", "sourceType", "supplierId", "supplierCode",
-  "supplierName", "purchaseDate", "invoiceNo", "purchasePrice", "poId", "grnId", "code", "active", "sampleOnly",
+  "urut", "code", "name", "awal", "ajust", "terima", "keluar", "purchasePrice",
+  "saldo", "category", "unit", "nilai", "valuta", "supplierName", "transaksi",
+  "id", "salePrice", "minStock", "rxRequired", "marketplaceEnabled", "desc",
+  "emoji", "gradient", "imageUrl", "batchId", "batchNo", "qty", "expiryISO",
+  "sourceType", "supplierId", "supplierCode", "purchaseDate", "invoiceNo",
+  "poId", "grnId", "active", "sampleOnly", "riwayatAwal", "riwayatAjust",
+  "riwayatTerima", "riwayatKeluar", "riwayatTransaksi",
 ];
 
 export const INVENTORY_IMPORT_HEADERS: readonly string[] = HEADERS;
@@ -13,7 +17,11 @@ const HEADER_ALIASES: Record<string, string> = {
   price: "salePrice",
   costPrice: "purchasePrice",
 };
-const OPTIONAL_LEGACY_HEADERS = new Set(["sourceType", "supplierCode", "supplierName", "purchaseDate", "invoiceNo", "code", "active", "sampleOnly"]);
+const OPTIONAL_LEGACY_HEADERS = new Set([
+  "sourceType", "supplierCode", "supplierName", "purchaseDate", "invoiceNo", "code", "active", "sampleOnly",
+  "urut", "awal", "ajust", "terima", "keluar", "saldo", "nilai", "valuta", "transaksi",
+  "riwayatAwal", "riwayatAjust", "riwayatTerima", "riwayatKeluar", "riwayatTransaksi",
+]);
 export type ImportSupplier = { id: string; code?: string; name: string; active: boolean; returnable: boolean; returnMinDaysBeforeED: number };
 export type InventorySourceType = "PURCHASE" | "OPENING_STOCK" | "TRANSFER" | "DONATION" | "UNKNOWN";
 
@@ -77,20 +85,47 @@ function parseNumber(value: string, field: string, rowNumber: number, fallback?:
   return number;
 }
 
-export function serializeInventoryCsv(products: DemoProduct[], includePurchasePrice = true) {
+export function serializeInventoryCsv(
+  products: DemoProduct[],
+  includePurchasePrice = true,
+  dailySummaries?: Map<string, DailyInventorySummary>,
+) {
   const rows = [HEADERS];
-  for (const product of products) {
+  for (const [index, product] of products.entries()) {
     const batches = product.batches.length ? product.batches : [null];
+    const saldo = product.batches.reduce((sum, batch) => sum + batch.qty, 0);
+    const summary = dailySummaries?.get(product.id);
+    const hasCosts = product.batches.every((batch) => batch.qty === 0 || typeof batch.costPrice === "number");
+    const nilai = includePurchasePrice && hasCosts
+      ? product.batches.reduce((sum, batch) => sum + batch.qty * (batch.costPrice ?? 0), 0)
+      : undefined;
     for (const batch of batches) {
-      rows.push([
-        product.id, product.name, product.category, product.price, product.unit,
-        product.minStock, product.rxRequired, product.marketplaceEnabled, product.desc,
-        product.emoji, product.gradient, product.imageUrl, batch?.id, batch?.batchNo,
-        batch?.qty, batch?.expiryISO, batch?.sourceType || (batch?.supplierId ? "PURCHASE" : "OPENING_STOCK"),
-        batch?.supplierId, batch?.supplierCode, batch?.supplierName, batch?.purchaseDateISO,
-        batch?.invoiceNo, includePurchasePrice ? batch?.costPrice : "", batch?.poId, batch?.grnId,
-        product.code, product.active !== false && !product.sampleOnly, product.sampleOnly === true,
-      ].map(csvEscape));
+      const values: Record<string, unknown> = {
+        urut: index + 1, code: product.code, name: product.name,
+        awal: dailySummaries ? summary?.opening ?? saldo : undefined,
+        ajust: dailySummaries ? summary?.adjustment ?? 0 : undefined,
+        terima: dailySummaries ? summary?.incoming ?? 0 : undefined,
+        keluar: dailySummaries ? summary?.outgoing ?? 0 : undefined,
+        transaksi: dailySummaries ? summary?.sales ?? 0 : undefined,
+        purchasePrice: includePurchasePrice ? batch?.costPrice : undefined,
+        saldo, category: product.category, unit: product.unit, nilai, valuta: "IDR",
+        supplierName: batch?.supplierName, id: product.id, salePrice: product.price,
+        minStock: product.minStock, rxRequired: product.rxRequired,
+        marketplaceEnabled: product.marketplaceEnabled, desc: product.desc, emoji: product.emoji,
+        gradient: product.gradient, imageUrl: product.imageUrl, batchId: batch?.id,
+        batchNo: batch?.batchNo, qty: batch?.qty, expiryISO: batch?.expiryISO,
+        sourceType: batch?.sourceType || (batch?.supplierId ? "PURCHASE" : "OPENING_STOCK"),
+        supplierId: batch?.supplierId, supplierCode: batch?.supplierCode,
+        purchaseDate: batch?.purchaseDateISO, invoiceNo: batch?.invoiceNo,
+        poId: batch?.poId, grnId: batch?.grnId,
+        active: product.active !== false && !product.sampleOnly, sampleOnly: product.sampleOnly === true,
+        riwayatAwal: product.legacyStockSummary?.opening,
+        riwayatAjust: product.legacyStockSummary?.adjustment,
+        riwayatTerima: product.legacyStockSummary?.incoming,
+        riwayatKeluar: product.legacyStockSummary?.outgoing,
+        riwayatTransaksi: product.legacyStockSummary?.sales,
+      };
+      rows.push(HEADERS.map((header) => csvEscape(values[header])));
     }
   }
   return `\uFEFF${rows.map((row) => row.join(",")).join("\r\n")}`;
@@ -135,6 +170,31 @@ export function parseInventoryCsv(text: string, tenantId: string, suppliers: Imp
     const name = value.name.trim();
     if (!name) throw new Error(`Baris ${rowNumber}: nama produk wajib diisi.`);
 
+    const hasHistoricalFields = ["riwayatAwal", "riwayatAjust", "riwayatTerima", "riwayatKeluar", "riwayatTransaksi"]
+      .some((field) => (value[field] || "").trim() !== "");
+    const summaryFields = hasHistoricalFields
+      ? ["riwayatAwal", "riwayatAjust", "riwayatTerima", "riwayatKeluar"]
+      : ["awal", "ajust", "terima", "keluar"];
+    const [openingField, adjustmentField, incomingField, outgoingField] = summaryFields;
+    const salesField = hasHistoricalFields ? "riwayatTransaksi" : "transaksi";
+    const hasSummary = summaryFields.some((field) => (value[field] || "").trim() !== "") || !!value[salesField]?.trim();
+    let legacyStockSummary: DemoProduct["legacyStockSummary"];
+    if (hasSummary) {
+      if (summaryFields.some((field) => !(value[field] || "").trim())) {
+        throw new Error(`Baris ${rowNumber}: ${summaryFields.join(", ")} harus diisi bersama.`);
+      }
+      const adjustment = Number(value[adjustmentField]);
+      if (!Number.isSafeInteger(adjustment)) throw new Error(`Baris ${rowNumber}: ${adjustmentField} harus bilangan bulat.`);
+      const opening = parseNumber(value[openingField], openingField, rowNumber);
+      const incoming = parseNumber(value[incomingField], incomingField, rowNumber);
+      const outgoing = parseNumber(value[outgoingField], outgoingField, rowNumber);
+      const sales = value[salesField]?.trim() ? parseNumber(value[salesField], salesField, rowNumber) : undefined;
+      if (![opening, incoming, outgoing, ...(sales === undefined ? [] : [sales])].every(Number.isSafeInteger)) {
+        throw new Error(`Baris ${rowNumber}: ringkasan stok harus menggunakan jumlah unit bulat.`);
+      }
+      legacyStockSummary = { opening, adjustment, incoming, outgoing, ...(sales === undefined ? {} : { sales }) };
+    }
+
     const id = value.id.trim();
     const key = id || `name:${name.toLocaleLowerCase("id-ID")}`;
     let product = grouped.get(key);
@@ -156,11 +216,14 @@ export function parseInventoryCsv(text: string, tenantId: string, suppliers: Imp
         code: value.code || undefined,
         active: value.active ? parseBoolean(value.active, "active", rowNumber) : true,
         sampleOnly: value.sampleOnly ? parseBoolean(value.sampleOnly, "sampleOnly", rowNumber) : false,
+        ...(legacyStockSummary ? { legacyStockSummary } : {}),
         batches: [],
       };
       grouped.set(key, product);
     } else if (product.name !== name) {
       throw new Error(`Baris ${rowNumber}: ID produk yang sama memiliki nama berbeda.`);
+    } else if (JSON.stringify(product.legacyStockSummary) !== JSON.stringify(legacyStockSummary)) {
+      throw new Error(`Baris ${rowNumber}: ringkasan stok untuk produk yang sama harus sama pada setiap batch.`);
     }
 
     const hasBatchData = ["batchNo", "qty", "expiryISO", "supplierCode", "supplierName", "purchaseDate", "invoiceNo", "purchasePrice", "sourceType"]

@@ -54,4 +54,51 @@ describe("inventory Excel import/export", () => {
     expect(reimported).toMatchObject({ id: "prod-1", name: "Parasetamol 500", price: 4000, code: "PCT500" });
     expect(reimported.batches[0]).toMatchObject({ id: "batch-1", batchNo: "A1", qty: 20, expiryISO: "2027-01-31", costPrice: 2500 });
   });
+
+  it("exports the requested order and preserves batch quantities and the imported historical summary", async () => {
+    const product: DemoProduct = {
+      id: "p", tenantId: "tenant-x", name: "Produk", code: "KODE-1", category: "RESEP",
+      price: 4000, emoji: "", gradient: "", desc: "", unit: "PCS", rxRequired: false,
+      marketplaceEnabled: false, minStock: 1,
+      legacyStockSummary: { opening: 98, adjustment: 0, incoming: 120, outgoing: 50 },
+      batches: [
+        { id: "b1", batchNo: "B1", qty: 6, expiryISO: "2027-01-31", costPrice: 1000 },
+        { id: "b2", batchNo: "B2", qty: 4, expiryISO: "2027-02-28", costPrice: 2000 },
+      ],
+    };
+    const daily = new Map([["p", { opening: 12, adjustment: -1, sales: 2, incoming: 1, outgoing: 3 }]]);
+    const workbook = await inventoryCsvToWorkbook(serializeInventoryCsv([product], true, daily));
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets.Stok, { header: 1 });
+    expect(rows[0].slice(0, 15)).toEqual([
+      "urut", "code", "name", "awal", "ajust", "terima", "keluar", "purchasePrice",
+      "saldo", "category", "unit", "nilai", "valuta", "supplierName", "transaksi",
+    ]);
+    expect(rows[1].slice(0, 9)).toEqual([1, "KODE-1", "Produk", 12, -1, 1, 3, 1000, 10]);
+    expect(rows[2][8]).toBe(10);
+    const [reimported] = parseInventoryCsv(await excelBufferToCsvText(workbookToBuffer(workbook)), "tenant-x");
+    expect(reimported.batches.map((batch) => batch.qty)).toEqual([6, 4]);
+    expect(reimported.legacyStockSummary).toEqual({ opening: 98, adjustment: 0, incoming: 120, outgoing: 50 });
+  });
+
+  it("imports a complete legacy summary without treating it as a sale", async () => {
+    const csv = await excelBufferToCsvText(workbookToBuffer(await buildInventoryTemplateWorkbook()));
+    const [product] = parseInventoryCsv(csv, "tenant-x", suppliers);
+    expect(product.batches[0].qty).toBe(168);
+    expect(product.legacyStockSummary).toEqual({ opening: 98, adjustment: 0, incoming: 120, outgoing: 50 });
+  });
+
+  it("rejects incomplete or conflicting historical summaries across batches", () => {
+    const sheet = XLSX.utils.json_to_sheet([
+      { id: "p", name: "Produk", salePrice: 1, rxRequired: false, marketplaceEnabled: false,
+        awal: 10, ajust: 0, terima: 0, keluar: 2, batchId: "b1", batchNo: "B1", qty: 3, expiryISO: "2027-01-31" },
+      { id: "p", name: "Produk", salePrice: 1, rxRequired: false, marketplaceEnabled: false,
+        awal: 11, ajust: 0, terima: 0, keluar: 2, batchId: "b2", batchNo: "B2", qty: 5, expiryISO: "2027-01-31" },
+    ], { header: [...INVENTORY_IMPORT_HEADERS] });
+    const csv = XLSX.utils.sheet_to_csv(sheet);
+    expect(() => parseInventoryCsv(csv, "tenant-x")).toThrow(/ringkasan stok.*harus sama/i);
+    const incomplete = XLSX.utils.json_to_sheet([
+      { name: "Produk", salePrice: 1, rxRequired: false, marketplaceEnabled: false, awal: 10 },
+    ], { header: [...INVENTORY_IMPORT_HEADERS] });
+    expect(() => parseInventoryCsv(XLSX.utils.sheet_to_csv(incomplete), "tenant-x")).toThrow(/harus diisi bersama/i);
+  });
 });

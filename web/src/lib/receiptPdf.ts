@@ -1,6 +1,5 @@
-import { PDFDocument } from "pdf-lib";
-
 export async function createReceiptPdf(text: string): Promise<Uint8Array> {
+  const { PDFDocument } = await import("pdf-lib");
   const pdf = await PDFDocument.create();
   const canvas = document.createElement("canvas");
   canvas.width = 1240;

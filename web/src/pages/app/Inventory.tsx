@@ -6,15 +6,17 @@ import { buildInventoryTemplateWorkbook, downloadWorkbook, excelBufferToCsvText,
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import {
-  deleteTenantBatch, deleteTenantProduct, importTenantProducts, loadTenantInventory,
-  loadTenantSuppliers, migrateLegacyBatchCosts, saveTenantBatch, saveTenantProduct, setTenantProductMarketplace, subscribeTenantInventory,
+  deleteTenantBatch, deleteTenantProduct, importTenantProducts, loadTenantInventory, loadTenantInventoryMovements,
+  loadTenantSuppliers, migrateLegacyBatchCosts, saveTenantBatch, saveTenantProduct, setTenantProductMarketplace, subscribeDailyInventoryMovements, subscribeTenantInventory,
+  type InventoryMovement, type InventoryMovementCursor, type InventoryMovementType,
 } from "../../lib/inventoryRepository";
 import { findProductImages, type ImageCandidate } from "../../lib/imageSearch";
 import { prepareProductImage } from "../../lib/productImage";
 import { ProductThumbnail } from "../../components/ProductThumbnail";
 import { applyQueuedSalesToInventory, getQueuedPosSales } from "../../lib/offlinePos";
 import { Link } from "react-router-dom";
-import { CatalogPagination, useCatalogPage } from "../../components/CatalogPagination";
+import { CATALOG_PAGE_SIZE, CatalogPagination, useCatalogPage } from "../../components/CatalogPagination";
+import { jakartaDayBounds, summarizeDailyInventory } from "../../lib/dailyInventory";
 import {
   batchZoneMeta, formatDaysToExpiry,
   availableQty, expiredQty, valueInZones, productWorstZone, zoneMeta,
@@ -38,6 +40,7 @@ function formatRp(n: number) { return `Rp ${n.toLocaleString("id-ID")}`; }
 
 export function Inventory() {
   const tenantId = useAuth((s) => s.claims?.tenantId);
+  const user = useAuth((s) => s.user);
   const canViewPurchasePrice = useAuth((s) => s.claims?.role === "OWNER");
   const [products, setProducts] = useState<DemoProduct[]>([]);
   const [suppliers, setSuppliers] = useState<ImportSupplier[]>([]);
@@ -46,6 +49,9 @@ export function Inventory() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [dailyMovements, setDailyMovements] = useState<InventoryMovement[] | null>(null);
+  const [dailyError, setDailyError] = useState("");
+  const [pendingSales, setPendingSales] = useState<boolean | null>(null);
 
   const [editing, setEditing] = useState<DemoProduct | null>(null);
   const [search, setSearch] = useState("");
@@ -65,11 +71,15 @@ export function Inventory() {
     ]).then(([result, supplierOptions, pending]) => {
       if (!active) return;
       setProducts(applyQueuedSalesToInventory(result.products, pending));
+      setPendingSales(pending.length > 0);
       setTenant(result.tenant);
       setSuppliers(supplierOptions);
       setError("");
     }).catch((loadError: unknown) => {
-      if (active) setError(loadError instanceof Error ? loadError.message : "Gagal memuat stok dari Firebase.");
+      if (active) {
+        setPendingSales(null);
+        setError(loadError instanceof Error ? loadError.message : "Gagal memuat stok dari Firebase.");
+      }
     }).finally(() => {
       if (active) setLoading(false);
     });
@@ -83,9 +93,15 @@ export function Inventory() {
     const stop = subscribeTenantInventory(tenantId, canViewPurchasePrice, (inventory) => {
       const currentRevision = ++revision;
       void getQueuedPosSales(tenantId).then((pending) => {
-        if (active && currentRevision === revision) setProducts(applyQueuedSalesToInventory(inventory.products, pending));
+        if (active && currentRevision === revision) {
+          setProducts(applyQueuedSalesToInventory(inventory.products, pending));
+          setPendingSales(pending.length > 0);
+        }
       }).catch((error: unknown) => {
-        if (active) setError(error instanceof Error ? error.message : "Gagal membaca antrean lokal.");
+        if (active) {
+          setPendingSales(null);
+          setError(error instanceof Error ? error.message : "Gagal membaca antrean lokal.");
+        }
       });
     }, (error) => { if (active) setError(error.message); });
     return () => { active = false; stop(); };
@@ -101,14 +117,49 @@ export function Inventory() {
         loadTenantInventory(tenantId, canViewPurchasePrice),
         getQueuedPosSales(tenantId),
       ]).then(([result, pending]) => {
-        if (active) setProducts(applyQueuedSalesToInventory(result.products, pending));
-      }).catch((refreshError) => console.error("Inventory refresh after offline sale failed.", refreshError));
+        if (active) {
+          setProducts(applyQueuedSalesToInventory(result.products, pending));
+          setPendingSales(pending.length > 0);
+        }
+      }).catch((refreshError) => {
+        if (active) {
+          setPendingSales(null);
+          setError(refreshError instanceof Error ? refreshError.message : "Gagal memperbarui stok setelah transaksi offline.");
+        }
+      });
     };
     return () => {
       active = false;
       channel.close();
     };
   }, [tenantId, canViewPurchasePrice]);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    let day = "";
+    let stop: (() => void) | undefined;
+    const refresh = () => {
+      const { start, end } = jakartaDayBounds();
+      const nextDay = start.toISOString();
+      if (nextDay === day) return;
+      day = nextDay;
+      stop?.();
+      setDailyMovements(null);
+      setDailyError("");
+      stop = subscribeDailyInventoryMovements(tenantId, start, end, setDailyMovements, (loadError) => {
+        setDailyMovements(null);
+        setDailyError(`Mutasi hari ini gagal dimuat: ${loadError.message}`);
+      });
+    };
+    refresh();
+    const timer = setInterval(refresh, 60_000);
+    return () => { clearInterval(timer); stop?.(); };
+  }, [tenantId]);
+
+  const dailySummaries = useMemo(
+    () => dailyMovements === null ? null : summarizeDailyInventory(dailyMovements),
+    [dailyMovements],
+  );
 
   const enriched = useMemo(() => products.map((p) => {
     const stock = availableQty(p.batches);          // exclude expired
@@ -194,10 +245,13 @@ export function Inventory() {
   }
 
   async function addBatch(productId: string, fields: Omit<DemoBatch, "id">) {
-    if (!tenantId) return;
+    if (!tenantId || !user) return;
     const batch = { ...fields, id: crypto.randomUUID() };
     try {
-      await saveTenantBatch(tenantId, productId, batch, canViewPurchasePrice);
+      await saveTenantBatch(tenantId, productId, batch, canViewPurchasePrice, {
+        uid: user.uid,
+        name: user.displayName || user.email || "Pengguna",
+      });
       setProducts((current) => current.map((product) => product.id === productId
         ? { ...product, batches: [...product.batches, batch] }
         : product));
@@ -212,9 +266,12 @@ export function Inventory() {
   }
 
   async function removeBatch(productId: string, batchId: string) {
-    if (!tenantId) return;
+    if (!tenantId || !user) return;
     try {
-      await deleteTenantBatch(tenantId, batchId, canViewPurchasePrice);
+      await deleteTenantBatch(tenantId, batchId, canViewPurchasePrice, {
+        uid: user.uid,
+        name: user.displayName || user.email || "Pengguna",
+      });
       setProducts((current) => current.map((product) => product.id === productId
         ? { ...product, batches: product.batches.filter((batch) => batch.id !== batchId) }
         : product));
@@ -231,7 +288,9 @@ export function Inventory() {
   async function exportExcel() {
     setBusy(true);
     try {
-      const workbook = await inventoryCsvToWorkbook(serializeInventoryCsv(products, canViewPurchasePrice));
+      const workbook = await inventoryCsvToWorkbook(serializeInventoryCsv(
+        products, canViewPurchasePrice, pendingSales === false && !dailyError ? dailySummaries ?? undefined : undefined,
+      ));
       await downloadWorkbook(workbook, `stok-obat-${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch {
       setError("Gagal menyiapkan file Excel.");
@@ -280,7 +339,7 @@ export function Inventory() {
   }
 
   async function importFile(file?: File) {
-    if (!tenantId || !file) return;
+    if (!tenantId || !user || !file) return;
     setBusy(true);
     setError("");
     setNotice("");
@@ -289,7 +348,10 @@ export function Inventory() {
       const text = isCsv ? await file.text() : await excelBufferToCsvText(await file.arrayBuffer());
       const { list: supplierList, created } = await ensureImportSuppliers(text);
       const imported = parseInventoryCsv(text, tenantId, supplierList);
-      await importTenantProducts(tenantId, imported, canViewPurchasePrice);
+      await importTenantProducts(tenantId, imported, canViewPurchasePrice, {
+        uid: user.uid,
+        name: user.displayName || user.email || "Pengguna",
+      });
       setProducts((current) => {
         const merged = new Map(current.map((product) => [product.id, product]));
         imported.forEach((product) => {
@@ -454,12 +516,37 @@ export function Inventory() {
         <Link to="/app/pos?mode=training" className="btn-primary inline-flex ml-3">Coba obat SAMPLE di POS latihan</Link>
       </div>}
       <CatalogPagination {...productPage} />
+      <p className="text-xs text-ink-500">
+        Mutasi hari ini (WIB) berdasarkan waktu dicatat di server; penjualan offline dihitung saat tersinkron.
+        Transaksi adalah unit terjual dan termasuk dalam Keluar; Ajust adalah penyesuaian yang juga termasuk dalam Masuk/Keluar.
+        Stok awal dan Saldo mencakup stok expired; kolom Stok hanya stok yang belum expired.
+        HPP adalah rata-rata batch yang belum expired; Nilai menghitung seluruh batch.
+        Riwayat sebelum fitur mutasi diaktifkan tidak tersedia. Geser tabel ke samping untuk melihat seluruh kolom.
+      </p>
+      {(dailyError || dailyMovements === null || pendingSales !== false) && <p role="status" className="text-sm text-warn-700">
+        {dailyError || (pendingSales === true
+          ? "Ringkasan mutasi tidak tersedia selama masih ada penjualan offline yang belum tersinkron."
+          : "Ringkasan mutasi menunggu data server dan antrean transaksi yang terkonfirmasi.")}
+      </p>}
       <div className="card !p-0 overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-ink-500 bg-surface-50 border-b border-surface-100">
             <tr>
+              <th className="p-3 text-right">No.</th>
+              <th className="p-3">Kode</th>
               <th className="p-3">Produk</th>
+              <th className="p-3 text-right whitespace-nowrap">Stok awal</th>
+              <th className="p-3 text-right">Ajust</th>
+              <th className="p-3 text-right">Masuk</th>
+              <th className="p-3 text-right">Keluar</th>
+              {canViewPurchasePrice && <th className="p-3 text-right">HPP</th>}
+              <th className="p-3 text-right">Saldo</th>
               <th className="p-3">Kategori</th>
+              <th className="p-3">Satuan</th>
+              {canViewPurchasePrice && <th className="p-3 text-right">Nilai</th>}
+              <th className="p-3">Valuta</th>
+              <th className="p-3">PBF</th>
+              <th className="p-3 text-right">Transaksi</th>
               <th className="p-3 text-right">Harga Jual</th>
               {canViewPurchasePrice && <th className="p-3 text-right">Margin / HPP</th>}
               <th className="p-3 text-right">Stok</th>
@@ -470,16 +557,23 @@ export function Inventory() {
           </thead>
           <tbody>
             {filtered.length === 0 && !loading && (
-              <tr><td colSpan={canViewPurchasePrice ? 8 : 7} className="text-center py-12 text-ink-500">
+              <tr><td colSpan={canViewPurchasePrice ? 21 : 18} className="text-center py-12 text-ink-500">
                 <div className="text-3xl">📭</div>
                 <div className="mt-2">Tidak ada produk{search && ` cocok dengan "${search}"`}.</div>
               </td></tr>
             )}
-            {productPage.items.map((p) => {
+            {productPage.items.map((p, index) => {
               const lowStock = p.stock < p.minStock;
               const nearestZone = p.nearestExpiry ? batchZoneMeta(p.nearestExpiry) : null;
+              const daily = dailySummaries?.get(p.id);
+              const dailyReady = dailySummaries !== null && pendingSales === false && !dailyError;
+              const hasCosts = p.batches.length > 0 && p.batches.every((batch) => batch.qty === 0 || typeof batch.costPrice === "number");
+              const stockValue = hasCosts ? p.batches.reduce((sum, batch) => sum + batch.qty * (batch.costPrice ?? 0), 0) : null;
+              const supplierNames = [...new Set(p.batches.map((batch) => batch.supplierName).filter(Boolean))].join(", ");
               return (
                 <tr key={p.id} className="border-t border-surface-100 hover:bg-surface-50/50">
+                  <td className="p-3 text-right">{(productPage.page - 1) * CATALOG_PAGE_SIZE + index + 1}</td>
+                  <td className="p-3 text-xs whitespace-nowrap">{p.code || "—"}</td>
                   <td className="p-3">
                     <div className="flex items-center gap-2">
                       <div>
@@ -489,7 +583,6 @@ export function Inventory() {
                       </div>
                       <div className="min-w-0">
                         <div className="font-medium truncate">{p.name}</div>
-                        {p.code && <div className="text-[10px] text-ink-500">{p.code}</div>}
                         <div className="flex gap-1 mt-0.5">
                           {p.sampleOnly && <span className="text-[9px] bg-warn-100 text-warn-700 px-1.5 py-0.5 rounded">SAMPLE · tidak dijual</span>}
                           {!p.sampleOnly && p.active === false && <span className="text-[9px] text-ink-500">Tidak aktif</span>}
@@ -503,7 +596,18 @@ export function Inventory() {
                       </div>
                     </div>
                   </td>
+                  <td className="p-3 text-right">{dailyReady ? (daily?.opening ?? p.totalAll) : "—"}</td>
+                  <td className="p-3 text-right">{dailyReady ? (daily?.adjustment ?? 0) : "—"}</td>
+                  <td className="p-3 text-right">{dailyReady ? (daily?.incoming ?? 0) : "—"}</td>
+                  <td className="p-3 text-right">{dailyReady ? (daily?.outgoing ?? 0) : "—"}</td>
+                  {canViewPurchasePrice && <td className="p-3 text-right">{p.avgCost > 0 ? formatRp(p.avgCost) : "—"}</td>}
+                  <td className="p-3 text-right">{p.totalAll}</td>
                   <td className="p-3 text-ink-500 text-xs">{p.category}</td>
+                  <td className="p-3 text-xs">{p.unit}</td>
+                  {canViewPurchasePrice && <td className="p-3 text-right">{stockValue === null ? "—" : formatRp(stockValue)}</td>}
+                  <td className="p-3 text-xs">IDR</td>
+                  <td className="p-3 text-xs">{supplierNames || "—"}</td>
+                  <td className="p-3 text-right">{dailyReady ? (daily?.sales ?? 0) : "—"}</td>
                   <td className="p-3 text-right font-semibold">{formatRp(p.price)}</td>
                   {canViewPurchasePrice && <td className="p-3 text-right">
                     {p.marginPct === null ? (
@@ -555,6 +659,7 @@ export function Inventory() {
 
       {editing && <ProductEditor
         product={editing}
+        tenantId={tenantId || ""}
         canViewPurchasePrice={canViewPurchasePrice}
         suppliers={suppliers}
         onClose={() => setEditing(null)}
@@ -576,10 +681,126 @@ export function Inventory() {
   );
 }
 
+const MOVEMENT_LABELS: Record<InventoryMovementType, string> = {
+  SALE: "Penjualan POS",
+  SUPPLIER_RETURN: "Retur ke pemasok",
+  PURCHASE: "Penerimaan pembelian",
+  IMPORT: "Impor Excel",
+  ADJUSTMENT: "Penyesuaian stok",
+  BATCH_REMOVAL: "Penghapusan batch",
+};
+
+function InventoryMovementHistory({ tenantId, productId }: { tenantId: string; productId: string }) {
+  const [items, setItems] = useState<InventoryMovement[]>([]);
+  const [cursor, setCursor] = useState<InventoryMovementCursor>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setItems([]);
+    setCursor(null);
+    setHasMore(false);
+    setError("");
+    void loadTenantInventoryMovements(tenantId, productId).then((page) => {
+      if (!active) return;
+      setItems(page.items);
+      setCursor(page.cursor);
+      setHasMore(page.items.length === 50);
+    }).catch((loadError: unknown) => {
+      if (active) setError(loadError instanceof Error ? loadError.message : "Riwayat stok gagal dimuat.");
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, [tenantId, productId]);
+
+  async function loadOlder() {
+    if (!cursor || loading) return;
+    setLoading(true);
+    setError("");
+    try {
+      const page = await loadTenantInventoryMovements(tenantId, productId, cursor);
+      setItems((current) => [...current, ...page.items]);
+      setCursor(page.cursor);
+      setHasMore(page.items.length === 50);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Riwayat stok gagal dimuat.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-xl border border-surface-200 p-3">
+      <p className="mb-3 text-xs leading-5 text-ink-500">
+        Riwayat mencatat penjualan, penerimaan, impor, penyesuaian, retur, dan penghapusan batch sejak fitur ini diaktifkan. Transaksi sebelum itu tidak ditampilkan di sini.
+      </p>
+      {error && <p role="alert" className="mb-3 text-sm text-danger-600">{error}</p>}
+      {loading && items.length === 0 && <p className="py-4 text-center text-sm text-ink-500">Memuat riwayat…</p>}
+      {!loading && !error && items.length === 0 && (
+        <p className="py-4 text-center text-sm text-ink-500">Belum ada riwayat mutasi untuk produk ini.</p>
+      )}
+      {items.length > 0 && (
+        <div className="max-h-80 overflow-auto">
+          <table className="w-full min-w-[700px] text-left text-xs">
+            <thead className="sticky top-0 bg-surface-50 text-ink-500">
+              <tr>
+                <th className="p-2">Waktu / Petugas</th>
+                <th className="p-2">Aktivitas / Referensi</th>
+                <th className="p-2">Batch</th>
+                <th className="p-2 text-right">Perubahan batch</th>
+                <th className="p-2 text-right">Total stok produk</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-surface-100">
+              {items.map((movement) => {
+                const timestamp = movement.createdAt?.toDate
+                  ? new Intl.DateTimeFormat("id-ID", {
+                    dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta",
+                  }).format(movement.createdAt.toDate())
+                  : "Waktu tidak tersedia";
+                return (
+                  <tr key={movement.id}>
+                    <td className="p-2 whitespace-nowrap">
+                      <div>{timestamp}</div>
+                      <div className="mt-1 text-ink-500">{movement.actorName}</div>
+                    </td>
+                    <td className="p-2">
+                      <div className="font-medium">{MOVEMENT_LABELS[movement.movementType]}</div>
+                      {movement.referenceLabel && <div className="mt-1 text-ink-500">{movement.referenceLabel}</div>}
+                    </td>
+                    <td className="p-2">{movement.batchNo || "—"}</td>
+                    <td className={`p-2 text-right font-semibold ${movement.quantityDelta < 0 ? "text-danger-600" : "text-emerald-700"}`}>
+                      {movement.quantityDelta > 0 ? "+" : ""}{movement.quantityDelta}
+                      <div className="font-normal text-ink-500">{movement.batchQtyBefore} → {movement.batchQtyAfter}</div>
+                    </td>
+                    <td className="p-2 text-right">
+                      {movement.productStockBefore} → {movement.productStockAfter}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {hasMore && (
+        <button type="button" className="btn-secondary mt-3 text-xs" disabled={loading} onClick={() => void loadOlder()}>
+          {loading ? "Memuat…" : "Muat riwayat lebih lama"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ProductEditor({
-  product, canViewPurchasePrice, suppliers, onClose, onSave, onDelete, onAddBatch, onRemoveBatch,
+  product, tenantId, canViewPurchasePrice, suppliers, onClose, onSave, onDelete, onAddBatch, onRemoveBatch,
 }: {
   product: DemoProduct;
+  tenantId: string;
   canViewPurchasePrice: boolean;
   suppliers: ImportSupplier[];
   onClose: () => void;
@@ -592,6 +813,7 @@ function ProductEditor({
   const live = product;
   const [form, setForm] = useState<DemoProduct>(product);
   const [imageBusy, setImageBusy] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [newBatch, setNewBatch] = useState({
     batchNo: "", qty: 0, expiryISO: "", sourceType: "OPENING_STOCK" as NonNullable<DemoBatch["sourceType"]>,
     supplierId: "", purchaseDateISO: "", invoiceNo: "", costPrice: 0,
@@ -625,6 +847,12 @@ function ProductEditor({
             <h2 className="text-xl font-bold">{product.name ? `Kelola: ${product.name}` : "Produk Baru"}</h2>
             <button onClick={onClose} className="w-9 h-9 rounded-full hover:bg-surface-100 grid place-items-center">✕</button>
           </div>
+          {live.legacyStockSummary && <p className="mt-3 text-xs text-ink-500">
+            Ringkasan impor lama (bukan transaksi POS): awal {live.legacyStockSummary.opening},
+            ajust {live.legacyStockSummary.adjustment}, masuk {live.legacyStockSummary.incoming},
+            keluar {live.legacyStockSummary.outgoing}
+            {live.legacyStockSummary.sales !== undefined && `, transaksi ${live.legacyStockSummary.sales}`}.
+          </p>}
 
           <div className="grid md:grid-cols-2 gap-4 mt-4">
             {form.sampleOnly && <p role="status" className="md:col-span-2 text-sm text-warn-700">Data SAMPLE: harga, nomor batch dan tanggal ED adalah contoh, bukan untuk penjualan. Ubah data nyata melalui produk operasional terpisah.</p>}
@@ -748,6 +976,13 @@ function ProductEditor({
                   )}
                 </tbody>
               </table>
+            </div>
+
+            <div className="mt-3">
+              <button type="button" className="btn-secondary text-sm" onClick={() => setShowHistory((visible) => !visible)}>
+                {showHistory ? "Tutup riwayat stok" : "Lihat riwayat stok"}
+              </button>
+              {showHistory && <InventoryMovementHistory tenantId={tenantId} productId={product.id} />}
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2 items-end">

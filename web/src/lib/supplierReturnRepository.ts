@@ -1,6 +1,7 @@
 import { collection, doc, runTransaction, serverTimestamp } from "firebase/firestore";
 import { batchZone, daysToExpiry } from "./fefo";
 import { db } from "./firebase";
+import { createInventoryMovementWrite } from "./inventoryRepository";
 
 export type SupplierReturnReason = "NEAR_EXPIRY" | "DAMAGED" | "WRONG_ITEM" | "RECALL" | "OVERSTOCK" | "OTHER";
 
@@ -12,6 +13,7 @@ export async function createSupplierReturn(input: {
   reason: SupplierReturnReason;
   notes: string;
   createdBy: string;
+  createdByName: string;
 }) {
   if (!Number.isInteger(input.qty) || input.qty <= 0) throw new Error("invalid_return_qty");
   const supplierRef = doc(db, `tenants/${input.tenantId}/suppliers/${input.supplierId}`);
@@ -69,6 +71,24 @@ export async function createSupplierReturn(input: {
       createdBy: input.createdBy,
       createdAt: serverTimestamp(),
     });
+    const movement = createInventoryMovementWrite(input.tenantId, {
+      productId: batch.productId,
+      productName: String(product.name || ""),
+      batchId: input.batchId,
+      batchNo: String(batch.batchNo || ""),
+      movementType: "SUPPLIER_RETURN",
+      quantityDelta: -input.qty,
+      batchQtyBefore: batch.qty,
+      batchQtyAfter: qtyRemaining,
+      productStockBefore: Number(product.stock || 0),
+      productStockAfter: stockRemaining,
+      sourceType: String(batch.sourceType || "PURCHASE"),
+      referenceId: returnRef.id,
+      referenceLabel: `Retur ${supplier.name || input.supplierId}`,
+      actorUid: input.createdBy,
+      actorName: input.createdByName,
+    });
+    transaction.set(movement.ref, movement.data);
   });
   return returnRef.id;
 }

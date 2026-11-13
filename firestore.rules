@@ -68,7 +68,7 @@ service cloud.firestore {
         isTenantOwner(request.resource.data.tenantId)
         && request.resource.data.uid == uid
         && request.resource.data.active == true
-        && request.resource.data.role in ["STAFF", "CASHIER"]
+        && request.resource.data.role in ["OWNER", "STAFF", "CASHIER"]
         && request.resource.data.username is string
         && request.resource.data.email is string
         && request.resource.data.email.matches('.*@u\\.batam-farma\\.app')
@@ -97,7 +97,7 @@ service cloud.firestore {
                   || isTenantOwner(resource.data.tenantId);
       allow create: if isAdmin() || (
         isTenantOwner(request.resource.data.tenantId)
-        && request.resource.data.role in ["STAFF", "CASHIER"]
+        && request.resource.data.role in ["OWNER", "STAFF", "CASHIER"]
         && request.resource.data.email == email
         && request.resource.data.active == true
         && request.resource.data.status == "PENDING"
@@ -111,8 +111,8 @@ service cloud.firestore {
         isTenantOwner(resource.data.tenantId)
         && resource.data.status != "CLAIMED"
         && request.resource.data.tenantId == resource.data.tenantId
-        && ((resource.data.role in ["STAFF", "CASHIER"] && request.resource.data.role in ["STAFF", "CASHIER"])
-            || (resource.data.role == "OWNER" && request.resource.data.role == "OWNER"))
+        && resource.data.role in ["OWNER", "STAFF", "CASHIER"]
+        && request.resource.data.role in ["OWNER", "STAFF", "CASHIER"]
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["role", "active", "displayName", "status", "updatedAt"])
       ) || (
         isVerifiedEmail()
@@ -249,6 +249,95 @@ service cloud.firestore {
 
       match /inventoryBatchCosts/{bid} {
         allow read, write: if isAdmin() || isTenantOwner(tid);
+      }
+
+      function movementMatchesSale(tid) {
+        let salePath = /databases/$(database)/documents/tenants/$(tid)/posSales/$(request.resource.data.referenceId);
+        return request.resource.data.referenceId is string
+          && existsAfter(salePath)
+          && getAfter(salePath).data.productId == request.resource.data.productId
+          && getAfter(salePath).data.batchId == request.resource.data.batchId
+          && getAfter(salePath).data.qty == -request.resource.data.quantityDelta
+          && getAfter(salePath).data.cashierUid == request.auth.uid;
+      }
+
+      function movementMatchesSupplierReturn(tid) {
+        let returnPath = /databases/$(database)/documents/tenants/$(tid)/supplierReturns/$(request.resource.data.referenceId);
+        return request.resource.data.referenceId is string
+          && existsAfter(returnPath)
+          && getAfter(returnPath).data.productId == request.resource.data.productId
+          && getAfter(returnPath).data.batchId == request.resource.data.batchId
+          && getAfter(returnPath).data.qty == -request.resource.data.quantityDelta
+          && getAfter(returnPath).data.createdBy == request.auth.uid;
+      }
+
+      function movementMatchesInventoryState(tid) {
+        let productPath = /databases/$(database)/documents/tenants/$(tid)/products/$(request.resource.data.productId);
+        let batchPath = /databases/$(database)/documents/tenants/$(tid)/inventoryBatches/$(request.resource.data.batchId);
+        return existsAfter(productPath)
+          && (exists(productPath)
+            ? get(productPath).data.stock == request.resource.data.productStockBefore
+            : request.resource.data.productStockBefore == 0)
+          && getAfter(productPath).data.stock == request.resource.data.productStockAfter
+          && (
+            (request.resource.data.movementType == "BATCH_REMOVAL"
+              && exists(batchPath)
+              && !existsAfter(batchPath)
+              && get(batchPath).data.productId == request.resource.data.productId
+              && get(batchPath).data.qty == request.resource.data.batchQtyBefore
+              && request.resource.data.batchQtyAfter == 0)
+            || (request.resource.data.movementType != "BATCH_REMOVAL"
+              && existsAfter(batchPath)
+              && getAfter(batchPath).data.productId == request.resource.data.productId
+              && getAfter(batchPath).data.qty == request.resource.data.batchQtyAfter
+              && (exists(batchPath)
+                ? (get(batchPath).data.productId == request.resource.data.productId
+                  && get(batchPath).data.qty == request.resource.data.batchQtyBefore)
+                : request.resource.data.batchQtyBefore == 0))
+          );
+      }
+
+      match /inventoryMovements/{movementId} {
+        allow read: if isAdmin() || (isTenant(tid) && role() in ["OWNER", "STAFF", "INVENTORY"]);
+        allow create: if isTenant(tid)
+          && role() in ["OWNER", "STAFF", "INVENTORY", "CASHIER"]
+          && request.resource.data.keys().hasOnly([
+            "tenantId", "productId", "productName", "batchId", "batchNo", "movementType",
+            "quantityDelta", "batchQtyBefore", "batchQtyAfter", "productStockBefore", "productStockAfter",
+            "sourceType", "referenceId", "referenceLabel", "actorUid", "actorName", "createdAt"
+          ])
+          && request.resource.data.tenantId == tid
+          && request.resource.data.productId is string
+          && request.resource.data.productName is string
+          && request.resource.data.batchId is string
+          && request.resource.data.batchNo is string
+          && request.resource.data.movementType is string
+          && request.resource.data.quantityDelta is int
+          && request.resource.data.quantityDelta != 0
+          && request.resource.data.batchQtyBefore is int
+          && request.resource.data.batchQtyBefore >= 0
+          && request.resource.data.batchQtyAfter is int
+          && request.resource.data.batchQtyAfter >= 0
+          && request.resource.data.productStockBefore is int
+          && request.resource.data.productStockBefore >= 0
+          && request.resource.data.productStockAfter is int
+          && request.resource.data.productStockAfter >= 0
+          && request.resource.data.batchQtyAfter - request.resource.data.batchQtyBefore == request.resource.data.quantityDelta
+          && request.resource.data.actorUid == request.auth.uid
+          && request.resource.data.actorName is string
+          && request.resource.data.createdAt == request.time
+          && movementMatchesInventoryState(tid)
+          && (
+            (request.resource.data.movementType == "SALE"
+              && role() in ["OWNER", "CASHIER"]
+              && movementMatchesSale(tid))
+            || (request.resource.data.movementType == "SUPPLIER_RETURN"
+              && role() in ["OWNER", "STAFF"]
+              && movementMatchesSupplierReturn(tid))
+            || (request.resource.data.movementType in ["PURCHASE", "IMPORT", "ADJUSTMENT", "BATCH_REMOVAL"]
+              && role() in ["OWNER", "STAFF", "INVENTORY"])
+          );
+        allow update, delete: if false;
       }
 
       function requestSaleMatches(requestId, productId, fingerprint) {

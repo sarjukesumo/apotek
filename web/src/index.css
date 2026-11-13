@@ -6,6 +6,21 @@
 
 body { -webkit-tap-highlight-color: transparent; }
 
+@keyframes login-card-enter {
+  from { opacity: 0; transform: translateY(18px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes login-image-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .login-card-enter { animation: login-card-enter .42s cubic-bezier(.22, 1, .36, 1); }
+  .login-image-enter { animation: login-image-enter .45s .1s both; }
+}
+
 @keyframes dashboard-ticker {
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }

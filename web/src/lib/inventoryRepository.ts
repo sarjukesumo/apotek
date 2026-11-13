@@ -1,7 +1,7 @@
 import {
   collection, deleteField, doc,
-  getDocs, getDocsFromCache, getDocsFromServer, onSnapshot, onSnapshotsInSync, query, runTransaction, setDoc, Timestamp, where, writeBatch,
-  type DocumentData, type DocumentSnapshot, type Firestore, type QuerySnapshot,
+  getDocs, getDocsFromCache, getDocsFromServer, limit, onSnapshot, onSnapshotsInSync, orderBy, query, runTransaction, serverTimestamp, setDoc, startAfter, Timestamp, where, writeBatch,
+  type DocumentData, type DocumentSnapshot, type Firestore, type QueryDocumentSnapshot, type QuerySnapshot,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import type { DemoBatch, DemoProduct } from "./demoStore";
@@ -39,6 +39,71 @@ async function getDocsWithOfflineCache<T>(
 }
 
 export type TenantInventory = { products: DemoProduct[]; tenant: DocumentData | null };
+
+export type InventoryMovementType = "SALE" | "SUPPLIER_RETURN" | "PURCHASE" | "IMPORT" | "ADJUSTMENT" | "BATCH_REMOVAL";
+export type InventoryMovement = {
+  id: string;
+  tenantId: string;
+  productId: string;
+  productName: string;
+  batchId: string;
+  batchNo: string;
+  movementType: InventoryMovementType;
+  quantityDelta: number;
+  batchQtyBefore: number;
+  batchQtyAfter: number;
+  productStockBefore: number;
+  productStockAfter: number;
+  sourceType?: string;
+  referenceId?: string;
+  referenceLabel?: string;
+  actorUid: string;
+  actorName: string;
+  createdAt: Timestamp;
+};
+export type InventoryMovementDraft = Omit<InventoryMovement, "id" | "tenantId" | "createdAt">;
+export type InventoryMovementCursor = QueryDocumentSnapshot<DocumentData> | null;
+
+export function createInventoryMovementWrite(tenantId: string, movement: InventoryMovementDraft) {
+  return {
+    ref: doc(collection(db, `tenants/${tenantId}/inventoryMovements`)),
+    data: withoutUndefined({ ...movement, tenantId, createdAt: serverTimestamp() }),
+  };
+}
+
+export async function loadTenantInventoryMovements(
+  tenantId: string,
+  productId: string,
+  cursor: InventoryMovementCursor = null,
+) {
+  const movementCollection = collection(db, `tenants/${tenantId}/inventoryMovements`);
+  const movementQuery = cursor
+    ? query(movementCollection, where("productId", "==", productId), orderBy("createdAt", "desc"), startAfter(cursor), limit(50))
+    : query(movementCollection, where("productId", "==", productId), orderBy("createdAt", "desc"), limit(50));
+  const snapshot = await getDocs(movementQuery);
+  return {
+    items: snapshot.docs.map((movementDoc) => ({ ...movementDoc.data(), id: movementDoc.id } as InventoryMovement)),
+    cursor: snapshot.docs[snapshot.docs.length - 1] ?? null,
+  };
+}
+
+export function subscribeDailyInventoryMovements(
+  tenantId: string,
+  start: Date,
+  end: Date,
+  onMovements: (movements: InventoryMovement[] | null) => void,
+  onError: (error: Error) => void,
+) {
+  return onSnapshot(query(
+    collection(db, `tenants/${tenantId}/inventoryMovements`),
+    where("createdAt", ">=", Timestamp.fromDate(start)),
+    where("createdAt", "<", Timestamp.fromDate(end)),
+  ), { includeMetadataChanges: true }, (snapshot) => {
+    onMovements(snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites ? null : snapshot.docs.map(
+      (movementDoc) => ({ ...movementDoc.data(), id: movementDoc.id } as InventoryMovement),
+    ));
+  }, onError);
+}
 
 function inventoryFromSnapshots(
   tenantId: string, productSnapshot: QuerySnapshot, batchSnapshot: QuerySnapshot,
@@ -234,7 +299,10 @@ export async function setTenantProductMarketplace(tenantId: string, productId: s
   await setDoc(doc(db, `tenants/${tenantId}/products/${productId}`), { marketplaceEnabled: enabled }, { merge: true });
 }
 
-export async function saveTenantBatch(tenantId: string, productId: string, batch: DemoBatch, includePurchaseCosts = false) {
+export async function saveTenantBatch(
+  tenantId: string, productId: string, batch: DemoBatch, includePurchaseCosts: boolean,
+  actor: { uid: string; name: string },
+) {
   const { costPrice, ...stockBatch } = batch;
   if (!Number.isSafeInteger(batch.qty) || batch.qty < 0) throw new Error("Jumlah batch harus bilangan bulat non-negatif.");
   const batchRef = doc(db, `tenants/${tenantId}/inventoryBatches/${batch.id}`);
@@ -255,8 +323,28 @@ export async function saveTenantBatch(tenantId: string, productId: string, batch
     if (!Number.isSafeInteger(previousQty) || !Number.isSafeInteger(stock) || stock + batch.qty - previousQty < 0) {
       throw new Error("Stok produk tidak konsisten. Periksa stok sebelum menyimpan batch.");
     }
+    const quantityDelta = batch.qty - previousQty;
     transaction.set(batchRef, data, { merge: true });
-    transaction.update(productRef, { stock: stock + batch.qty - previousQty });
+    transaction.update(productRef, { stock: stock + quantityDelta });
+    if (quantityDelta !== 0) {
+      const movement = createInventoryMovementWrite(tenantId, {
+        productId,
+        productName: String(product.data().name || "Produk"),
+        batchId: batch.id,
+        batchNo: batch.batchNo,
+        movementType: !existing.exists() && batch.sourceType === "PURCHASE" ? "PURCHASE" : "ADJUSTMENT",
+        quantityDelta,
+        batchQtyBefore: previousQty,
+        batchQtyAfter: batch.qty,
+        productStockBefore: stock,
+        productStockAfter: stock + quantityDelta,
+        sourceType: batch.sourceType,
+        referenceLabel: !existing.exists() && batch.sourceType === "PURCHASE" ? batch.invoiceNo || "Penerimaan pembelian" : "Kelola batch",
+        actorUid: actor.uid,
+        actorName: actor.name,
+      });
+      transaction.set(movement.ref, movement.data);
+    }
     if (includePurchaseCosts && typeof costPrice === "number") {
       transaction.set(doc(db, `tenants/${tenantId}/inventoryBatchCosts/${batch.id}`), {
         batchId: batch.id, costPrice, updatedAt: new Date(),
@@ -265,7 +353,10 @@ export async function saveTenantBatch(tenantId: string, productId: string, batch
   });
 }
 
-export async function deleteTenantBatch(tenantId: string, batchId: string, includePurchaseCosts = false) {
+export async function deleteTenantBatch(
+  tenantId: string, batchId: string, includePurchaseCosts: boolean,
+  actor: { uid: string; name: string },
+) {
   const batchRef = doc(db, `tenants/${tenantId}/inventoryBatches/${batchId}`);
   await runTransaction(db, async (transaction) => {
     const batch = await transaction.get(batchRef);
@@ -279,11 +370,33 @@ export async function deleteTenantBatch(tenantId: string, batchId: string, inclu
     }
     transaction.update(productRef, { stock: stock - qty });
     transaction.delete(batchRef);
+    if (qty > 0) {
+      const movement = createInventoryMovementWrite(tenantId, {
+        productId: String(batch.data().productId),
+        productName: String(product.data()?.name || "Produk"),
+        batchId,
+        batchNo: String(batch.data().batchNo || ""),
+        movementType: "BATCH_REMOVAL",
+        quantityDelta: -qty,
+        batchQtyBefore: qty,
+        batchQtyAfter: 0,
+        productStockBefore: stock,
+        productStockAfter: stock - qty,
+        sourceType: typeof batch.data().sourceType === "string" ? batch.data().sourceType : undefined,
+        referenceLabel: "Batch dihapus dari Inventory",
+        actorUid: actor.uid,
+        actorName: actor.name,
+      });
+      transaction.set(movement.ref, movement.data);
+    }
     if (includePurchaseCosts) transaction.delete(doc(db, `tenants/${tenantId}/inventoryBatchCosts/${batchId}`));
   });
 }
 
-export async function importTenantProducts(tenantId: string, products: DemoProduct[], includePurchaseCosts = false) {
+export async function importTenantProducts(
+  tenantId: string, products: DemoProduct[], includePurchaseCosts: boolean,
+  actor: { uid: string; name: string },
+) {
   const batchIds = new Set<string>();
   const productIds = new Set<string>();
   for (const product of products) {
@@ -307,6 +420,7 @@ export async function importTenantProducts(tenantId: string, products: DemoProdu
           transaction.get(ref), Promise.all(batchRefs.map((batchRef) => transaction.get(batchRef))),
         ]);
         let stock = existing.exists() ? existing.data().stock : 0;
+        const productStockBefore = stock;
         if (!Number.isSafeInteger(stock)) throw new Error("Stok produk tidak konsisten.");
         product.batches.forEach((batch, index) => {
           const previous = oldBatches[index];
@@ -319,10 +433,32 @@ export async function importTenantProducts(tenantId: string, products: DemoProdu
         transaction.set(ref, { ...productDocumentData(product, tenantId), stock }, { merge: true });
         product.batches.forEach((batch, index) => {
           const { costPrice, ...fields } = batch;
+          const previous = oldBatches[index];
+          const previousQty = previous.exists() ? previous.data().qty : 0;
+          const quantityDelta = batch.qty - previousQty;
           transaction.set(batchRefs[index], withoutUndefined({
             ...fields, productId: product.id, tenantId, expiryAt: expiryTimestamp(batch.expiryISO),
             ...(includePurchaseCosts ? { costPrice: deleteField() } : {}),
           }), { merge: true });
+          if (quantityDelta !== 0) {
+            const movement = createInventoryMovementWrite(tenantId, {
+              productId: product.id,
+              productName: product.name,
+              batchId: batch.id,
+              batchNo: batch.batchNo,
+              movementType: "IMPORT",
+              quantityDelta,
+              batchQtyBefore: previousQty,
+              batchQtyAfter: batch.qty,
+              productStockBefore,
+              productStockAfter: stock,
+              sourceType: batch.sourceType,
+              referenceLabel: "Impor Excel",
+              actorUid: actor.uid,
+              actorName: actor.name,
+            });
+            transaction.set(movement.ref, movement.data);
+          }
           if (includePurchaseCosts && typeof costPrice === "number") {
             transaction.set(doc(db, `tenants/${tenantId}/inventoryBatchCosts/${batch.id}`), {
               batchId: batch.id, costPrice, updatedAt: new Date(),

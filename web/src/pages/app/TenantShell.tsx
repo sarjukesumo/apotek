@@ -6,6 +6,7 @@ import { getQueuedPosSales } from "../../lib/offlinePos";
 import { syncQueuedPosSales } from "../../lib/posSync";
 import { db } from "../../lib/firebase";
 import { subscribeTenantInventory } from "../../lib/inventoryRepository";
+import { RouteContent } from "../../components/RouteContent";
 
 type NavItem = { to: string; label: string; end?: boolean; emoji?: string };
 const groups: { title: string; items: NavItem[] }[] = [
@@ -209,7 +210,7 @@ export function TenantShell() {
 
       <main className="p-4 md:p-6 pb-20 min-w-0 max-w-full overflow-x-clip">
         {inventoryError && <p role="alert" className="mb-4 text-sm text-danger-600">{inventoryError}</p>}
-        <Outlet />
+        <RouteContent><Outlet /></RouteContent>
       </main>
     </div>
   );

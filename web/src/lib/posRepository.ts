@@ -5,6 +5,7 @@ import {
 import type { DemoProduct } from "./demoStore";
 import { pickFefo } from "./fefo";
 import { db } from "./firebase";
+import { createInventoryMovementWrite } from "./inventoryRepository";
 
 export type SaleLineInput = { productId: string; qty: number };
 
@@ -144,6 +145,10 @@ export async function completePosSale(input: {
     const trxId = `TRX-${input.requestId.toUpperCase()}`;
     const createdAt = input.occurredAtISO ? new Date(input.occurredAtISO) : new Date();
     if (Number.isNaN(createdAt.getTime())) throw new Error("invalid_sale_date");
+    const movementStockByProduct = new Map(planned.map(({ item, product, batches }) => [
+      item.productId,
+      Number(product.stock ?? batches.reduce((sum, batch) => sum + batch.qty, 0)),
+    ]));
     transaction.set(requestRef, {
       requestId: input.requestId, cashierUid: input.cashierUid, requestFingerprint,
       productIds: input.items.map((item) => item.productId), createdAt: serverTimestamp(),
@@ -191,6 +196,27 @@ export async function completePosSale(input: {
         totalCostStatus: "UNKNOWN",
         items: [{ productId: line.productId, productName: line.productName, qty: line.qty, subtotalRp: line.subtotalRp }],
       });
+      const productStockBefore = movementStockByProduct.get(line.productId) ?? 0;
+      const productStockAfter = productStockBefore - line.qty;
+      movementStockByProduct.set(line.productId, productStockAfter);
+      const movement = createInventoryMovementWrite(input.tenantId, {
+        productId: line.productId,
+        productName: line.productName,
+        batchId: line.batchId,
+        batchNo: line.batchNo,
+        movementType: "SALE",
+        quantityDelta: -line.qty,
+        batchQtyBefore: Number(line.batchData.qty),
+        batchQtyAfter: Number(line.batchData.qty) - line.qty,
+        productStockBefore,
+        productStockAfter,
+        sourceType: typeof line.batchData.sourceType === "string" ? line.batchData.sourceType : undefined,
+        referenceId: saleId,
+        referenceLabel: trxId,
+        actorUid: input.cashierUid,
+        actorName: input.cashierName,
+      });
+      transaction.set(movement.ref, movement.data);
     });
 
     const aggregated = new Map<string, { productId: string; name: string; qty: number; unitPrice: number; subtotalRp: number; discountRp: number; totalRp: number }>();

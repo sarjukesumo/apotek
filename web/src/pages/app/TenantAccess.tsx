@@ -6,10 +6,11 @@ import {
 } from "../../lib/access";
 import { createPasswordUser, resetPasswordUser, usernameAuthErrorText } from "../../lib/usernameAuth";
 
-type ManagedRole = "STAFF" | "CASHIER";
+type ManagedRole = "OWNER" | "STAFF" | "CASHIER";
+type EditableRole = Exclude<ManagedRole, "OWNER">;
 type Account = (AccessProfile | AccessInvitation) & { id: string; kind: "user" | "invitation" };
 
-const roleName: Record<ManagedRole | "OWNER", string> = {
+const roleName: Record<ManagedRole, string> = {
   OWNER: "Owner",
   STAFF: "Staf Apotek",
   CASHIER: "Kasir",
@@ -34,7 +35,7 @@ export function TenantAccess() {
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
-  const [editRole, setEditRole] = useState<ManagedRole>("STAFF");
+  const [editRole, setEditRole] = useState<EditableRole>("STAFF");
   const [resetId, setResetId] = useState<string | null>(null);
   const [resetPassword, setResetPassword] = useState("");
   const [showResetPassword, setShowResetPassword] = useState(false);
@@ -216,7 +217,7 @@ export function TenantAccess() {
       <header className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold">Pengguna & Akses</h1>
-          <p className="text-sm text-ink-500">Kelola akses Staf Apotek dan Kasir untuk apotek ini.</p>
+          <p className="text-sm text-ink-500">Kelola akses Owner, Staf Apotek, dan Kasir untuk apotek ini.</p>
         </div>
         <button className="btn-primary" onClick={() => setShowInvite((open) => !open)}>
           {showInvite ? "Tutup" : "+ Tambah pengguna"}
@@ -256,7 +257,7 @@ export function TenantAccess() {
             </>
           ) : (
             <>
-              <p className="md:col-span-2 text-sm text-ink-600">Pengguna masuk dengan akun Google tersebut. Owner hanya bisa memberi akses Staf atau Kasir pada apotek ini.</p>
+              <p className="md:col-span-2 text-sm text-ink-600">Pengguna masuk dengan akun Google tersebut. Pilih peran sesuai akses yang dibutuhkan.</p>
               <label className="text-sm font-medium md:col-span-2">Email akun
                 <input className="input mt-1 w-full" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="nama@email.com" />
               </label>
@@ -267,6 +268,7 @@ export function TenantAccess() {
           </label>
           <label className="text-sm font-medium">Peran
             <select className="input mt-1 w-full" value={role} onChange={(event) => setRole(event.target.value as ManagedRole)}>
+              <option value="OWNER">Owner</option>
               <option value="STAFF">Staf Apotek</option>
               <option value="CASHIER">Kasir</option>
             </select>
@@ -304,7 +306,7 @@ export function TenantAccess() {
                 <tr><td colSpan={4} className="px-4 py-10 text-center text-ink-500">Belum ada anggota yang cocok.</td></tr>
               ) : filtered.map((account) => {
                 const owner = account.role === "OWNER";
-                const memberRole: ManagedRole = account.role === "CASHIER" ? "CASHIER" : "STAFF";
+                const memberRole: EditableRole = account.role === "CASHIER" ? "CASHIER" : "STAFF";
                 const canManage = !owner || account.kind === "invitation";
                 const editing = editingId === `${account.kind}:${account.id}`;
                 const accountUsername = (account as AccessProfile).username;
@@ -340,7 +342,7 @@ export function TenantAccess() {
                       {owner && !editing ? roleName.OWNER : owner ? (
                         <span>{roleName.OWNER}</span>
                       ) : editing ? (
-                        <select className="input py-1" value={editRole} disabled={saving} onChange={(event) => setEditRole(event.target.value as ManagedRole)}>
+                        <select className="input py-1" value={editRole} disabled={saving} onChange={(event) => setEditRole(event.target.value as EditableRole)}>
                           <option value="STAFF">Staf Apotek</option>
                           <option value="CASHIER">Kasir</option>
                         </select>

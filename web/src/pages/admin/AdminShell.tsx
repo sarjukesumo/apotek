@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../../lib/auth";
+import { RouteContent } from "../../components/RouteContent";
 
 const platformItems = [
   { to: "/admin", label: "📊 Dashboard", end: true },
@@ -62,7 +63,7 @@ export function AdminShell() {
         <button className="btn-secondary px-3 py-1.5 text-sm shrink-0" onClick={() => signOut()}>Keluar</button>
       </header>
 
-      <main className="p-4 md:p-6 pb-20 md:pb-6 overflow-auto min-w-0 max-w-full"><Outlet /></main>
+      <main className="p-4 md:p-6 pb-20 md:pb-6 overflow-auto min-w-0 max-w-full"><RouteContent><Outlet /></RouteContent></main>
 
       {/* Mobile bottom nav */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-surface-100 grid grid-cols-4 z-30">

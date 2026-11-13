@@ -12,7 +12,11 @@ vi.mock("firebase/firestore", async (importOriginal) => {
   const actual = await importOriginal<typeof import("firebase/firestore")>();
   return { ...actual, onSnapshot: vi.fn(actual.onSnapshot) };
 });
-import { deleteTenantBatch, importTenantProducts, loadTenantInventory, saveTenantBatch, saveTenantProduct, subscribeTenantInventory, type TenantInventory } from "../src/lib/inventoryRepository";
+import {
+  deleteTenantBatch, importTenantProducts, loadTenantInventory, loadTenantInventoryMovements,
+  saveTenantBatch, saveTenantProduct, subscribeDailyInventoryMovements, subscribeTenantInventory, type TenantInventory,
+} from "../src/lib/inventoryRepository";
+import { jakartaDayBounds, summarizeDailyInventory } from "../src/lib/dailyInventory";
 import { completePosSale } from "../src/lib/posRepository";
 import { businessDate, subscribeMonthlySales } from "../src/lib/salesReporting";
 import { decodeBackupValue, downloadManualBackup, encodeBackupValue } from "../src/lib/manualBackup";
@@ -29,6 +33,7 @@ const product: DemoProduct = {
   marketplaceEnabled: false, minStock: 1, batches: [],
 };
 const batch = { id: "batch", batchNo: "QA-BATCH", qty: 10, expiryISO: "2099-12-31" };
+const ownerActor = { uid: "owner", name: "QA Owner" };
 const input = {
   tenantId, cashierUid: "cashier", cashierName: "QA Cashier",
   requestId: "123e4567-e89b-42d3-a456-426614174001", products: [], items: [{ productId: product.id, qty: 1 }],
@@ -63,7 +68,7 @@ beforeEach(async () => {
   });
   asUser("owner");
   await saveTenantProduct(tenantId, product);
-  await saveTenantBatch(tenantId, product.id, batch, true);
+  await saveTenantBatch(tenantId, product.id, batch, true, ownerActor);
 });
 afterAll(async () => { await environment.clearFirestore(); await environment.cleanup(); vi.unstubAllGlobals(); });
 
@@ -71,14 +76,36 @@ it("keeps batch create/update/delete, metadata edits and imports consistent with
   const database = asUser("owner");
   const stock = async () => (await getDoc(doc(database, `tenants/${tenantId}/products/medicine`))).data()?.stock;
   expect(await stock()).toBe(10);
-  await saveTenantBatch(tenantId, product.id, { ...batch, qty: 12 }, true);
+  await saveTenantBatch(tenantId, product.id, { ...batch, qty: 12 }, true, ownerActor);
   expect(await stock()).toBe(12);
   await saveTenantProduct(tenantId, { ...product, name: "Changed", batches: [] });
   expect(await stock()).toBe(12);
-  await importTenantProducts(tenantId, [{ ...product, batches: [{ ...batch, id: "second", qty: 3 }] }], true);
+  await importTenantProducts(tenantId, [{ ...product, batches: [{ ...batch, id: "second", qty: 3 }] }], true, ownerActor);
   expect(await stock()).toBe(15);
-  await deleteTenantBatch(tenantId, "second", true);
+  await deleteTenantBatch(tenantId, "second", true, ownerActor);
   expect(await stock()).toBe(12);
+  const movements = (await getDocs(collection(asUser("owner"), `tenants/${tenantId}/inventoryMovements`)))
+    .docs.map((entry) => entry.data());
+  expect(movements).toHaveLength(4);
+  expect(movements.map((entry) => `${entry.movementType}:${entry.quantityDelta}`).sort()).toEqual([
+    "ADJUSTMENT:10", "ADJUSTMENT:2", "BATCH_REMOVAL:-3", "IMPORT:3",
+  ]);
+  expect((await loadTenantInventoryMovements(tenantId, product.id)).items).toHaveLength(4);
+});
+
+it("reads today's recorded stock movements for inventory", async () => {
+  asUser("cashier");
+  await completePosSale(input);
+  asUser("owner");
+  const { start, end } = jakartaDayBounds();
+  const movements = await new Promise<import("../src/lib/inventoryRepository").InventoryMovement[]>((resolve, reject) => {
+    const stop = subscribeDailyInventoryMovements(tenantId, start, end, (items) => {
+      if (items) { stop(); resolve(items); }
+    }, reject);
+  });
+  expect(summarizeDailyInventory(movements).get(product.id)).toMatchObject({
+    opening: 0, sales: 1, incoming: 10, outgoing: 1,
+  });
 });
 
 it("keeps SAMPLE products unsaleable through edits, import and online/offline checkout", async () => {
@@ -86,7 +113,7 @@ it("keeps SAMPLE products unsaleable through edits, import and online/offline ch
   const sample = { ...product, sampleOnly: true, active: false, code: "QA-SAMPLE", batches: [batch] };
   await saveTenantProduct(tenantId, sample);
   await saveTenantProduct(tenantId, { ...sample, active: true, name: "SAMPLE updated" });
-  await importTenantProducts(tenantId, [{ ...sample, active: true }], true);
+  await importTenantProducts(tenantId, [{ ...sample, active: true }], true, ownerActor);
   expect((await getDoc(doc(owner, `tenants/${tenantId}/products/medicine`))).data()?.active).toBe(false);
   asUser("cashier");
   await expect(completePosSale(input)).rejects.toThrow("product_inactive");
@@ -139,7 +166,7 @@ it("replays a committed checkout without reducing stock again, including after p
 it("supports four-product atomic checkout and rejects a subset retry", async () => {
   for (let index = 1; index < 4; index++) {
     await saveTenantProduct(tenantId, { ...product, id: `medicine${index}` });
-    await saveTenantBatch(tenantId, `medicine${index}`, { ...batch, id: `batch${index}` }, true);
+    await saveTenantBatch(tenantId, `medicine${index}`, { ...batch, id: `batch${index}` }, true, ownerActor);
   }
   asUser("cashier");
   const sale = { ...input, cashReceived: 8000, items: [0, 1, 2, 3].map((index) => ({ productId: index ? `medicine${index}` : "medicine", qty: 1 })) };
@@ -148,7 +175,7 @@ it("supports four-product atomic checkout and rejects a subset retry", async () 
   await expect(completePosSale({ ...sale, items: sale.items.slice(0, 1) })).rejects.toThrow("checkout_request_conflict");
   asUser("owner");
   await saveTenantProduct(tenantId, { ...product, id: "disjoint" });
-  await saveTenantBatch(tenantId, "disjoint", { ...batch, id: "disjoint-batch" }, true);
+  await saveTenantBatch(tenantId, "disjoint", { ...batch, id: "disjoint-batch" }, true, ownerActor);
   asUser("cashier");
   await expect(completePosSale({ ...input, items: [{ productId: "disjoint", qty: 1 }] })).rejects.toThrow("checkout_request_conflict");
 });
@@ -261,7 +288,7 @@ it("loads 3000 products once, reuses listeners and performs bounded POS/stock op
 
 it("keeps live HPP private and releases listeners after the final subscriber", async () => {
   asUser("owner");
-  await saveTenantBatch(tenantId, product.id, { ...batch, costPrice: 1250 }, true);
+  await saveTenantBatch(tenantId, product.id, { ...batch, costPrice: 1250 }, true, ownerActor);
   const registrations = vi.mocked(onSnapshot).mock.calls.length;
   const stop = subscribeTenantInventory(tenantId, true, () => {}, (error) => { throw error; });
   try {
@@ -292,7 +319,7 @@ it("handles cash, debit and transfer with discounts and rejects excessive cashie
 });
 
 it("does not oversell the last unit when two different requests race", async () => {
-  await saveTenantBatch(tenantId, product.id, { ...batch, qty: 1 }, true);
+  await saveTenantBatch(tenantId, product.id, { ...batch, qty: 1 }, true, ownerActor);
   const cashier = asUser("cashier");
   const results = await Promise.allSettled([
     completePosSale(input), completePosSale({ ...input, requestId: crypto.randomUUID() }),
@@ -310,7 +337,7 @@ it("rejects prescription and expired-only inventory without recording any sale",
   await expect(completePosSale(input)).rejects.toThrow("rx_verification_required");
   asUser("owner");
   await saveTenantProduct(tenantId, product);
-  await saveTenantBatch(tenantId, product.id, { ...batch, expiryISO: "2000-01-01" }, true);
+  await saveTenantBatch(tenantId, product.id, { ...batch, expiryISO: "2000-01-01" }, true, ownerActor);
   asUser("cashier");
   await expect(completePosSale(input)).rejects.toThrow("insufficient_stock");
   const owner = asUser("owner");
@@ -340,9 +367,10 @@ it("preserves stock across receipt, supplier return, POS and failed excessive re
   });
   await saveTenantBatch(tenantId, product.id, {
     ...batch, qty: 30, sourceType: "PURCHASE", supplierId: "supplier", costPrice: 1000,
-  }, true);
+  }, true, ownerActor);
   const returnInput = {
-    tenantId, supplierId: "supplier", batchId: batch.id, qty: 5, reason: "OVERSTOCK" as const, notes: "QA", createdBy: "owner",
+    tenantId, supplierId: "supplier", batchId: batch.id, qty: 5, reason: "OVERSTOCK" as const, notes: "QA",
+    createdBy: "owner", createdByName: ownerActor.name,
   };
   await createSupplierReturn(returnInput);
   const first = await completePosSale({ ...input, cashierUid: "owner", isOwner: true, items: [{ productId: product.id, qty: 2 }], cashReceived: 4000 });
@@ -351,6 +379,11 @@ it("preserves stock across receipt, supplier return, POS and failed excessive re
   expect((await getDoc(doc(owner, `tenants/${tenantId}/products/medicine`))).data()?.stock).toBe(23);
   expect((await getDoc(doc(owner, `tenants/${tenantId}/inventoryBatches/batch`))).data()?.qty).toBe(23);
   expect((await getDocs(collection(owner, `tenants/${tenantId}/supplierReturns`))).size).toBe(1);
+  const movements = (await getDocs(collection(owner, `tenants/${tenantId}/inventoryMovements`)))
+    .docs.map((entry) => entry.data());
+  expect(movements.map((entry) => entry.movementType).sort()).toEqual([
+    "ADJUSTMENT", "ADJUSTMENT", "SALE", "SUPPLIER_RETURN",
+  ]);
 });
 
 it("reports all monthly rows beyond 500 and uses Jakarta date at month rollover", async () => {

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { motion, useReducedMotion } from "framer-motion";
 import { isSignInWithEmailLink } from "firebase/auth";
 import { useAuth } from "../lib/auth";
 import { auth } from "../lib/firebase";
@@ -9,7 +8,6 @@ import { useNavigate } from "react-router-dom";
 export function Login() {
   const { signInGoogle, signInUsername, user, isAdmin, claims, authError } = useAuth();
   const nav = useNavigate();
-  const reduceMotion = useReducedMotion();
   const [emailLinkNotice, setEmailLinkNotice] = useState(false);
   const [mode, setMode] = useState<"password" | "google">("password");
 
@@ -29,20 +27,15 @@ export function Login() {
   return (
     <div className="min-h-screen bg-surface-50">
       <main className="flex min-h-screen w-full items-center justify-center px-5 py-10">
-        <motion.section
-          initial={reduceMotion ? false : { opacity: 0, y: 18, scale: 0.985 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: reduceMotion ? 0 : 0.42, ease: [0.22, 1, 0.36, 1] }}
-          className="card mx-auto w-full max-w-md border border-surface-100 p-6 sm:p-8"
+        <section
+          className="login-card-enter card mx-auto w-full max-w-md border border-surface-100 p-6 sm:p-8"
         >
-          <motion.img
+          <img
             aria-hidden="true"
             alt=""
             src="/login-illustration.svg"
-            className="mx-auto mb-4 h-36 w-full max-w-[230px] object-contain"
-            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: reduceMotion ? 0 : 0.45, delay: reduceMotion ? 0 : 0.1 }}
+            fetchPriority="high"
+            className="login-image-enter mx-auto mb-4 h-36 w-full max-w-[230px] object-contain"
           />
           <div className="text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-brand-700">D’Farma</p>
@@ -80,7 +73,7 @@ export function Login() {
           </div>
 
           <p className="mt-5 text-center text-xs text-ink-500">Akses diberikan melalui pendaftaran oleh Admin atau Owner.</p>
-        </motion.section>
+        </section>
       </main>
     </div>
   );
