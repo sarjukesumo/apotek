@@ -6,6 +6,11 @@
 
 body { -webkit-tap-highlight-color: transparent; }
 
+.receipt { overflow-wrap: anywhere; }
+.receipt .row { align-items: flex-start; gap: 4px; }
+.receipt .row > :first-child { flex-shrink: 0; }
+.receipt .row > :last-child { min-width: 0; overflow-wrap: anywhere; text-align: right; }
+
 @keyframes login-card-enter {
   from { opacity: 0; transform: translateY(18px) scale(.985); }
   to { opacity: 1; transform: none; }

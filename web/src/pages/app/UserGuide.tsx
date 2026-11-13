@@ -303,8 +303,9 @@ const ownerGuide: GuideSection[] = [
   {
     title: "Printer & Perangkat",
     steps: [
-      "Pilih pengaturan printer yang sesuai dengan perangkat kasir.",
-      "Cetak percobaan dan pastikan hasilnya terbaca sebelum melayani pembeli.",
+      "Untuk EC-POS58, sambungkan printer melalui USB di PC kasir dan pasang driver yang sesuai. Pastikan printer muncul di Windows; aplikasi tidak memasang driver atau memilih printer otomatis.",
+      "Owner memilih 58 mm di Profil & Nota. Di Printer & Perangkat, pilih Isi profil EC-POS58 dan Tambah printer, lalu Tes cetak.",
+      "Pada dialog browser pilih printer yang terpasang, kertas 58 mm, skala 100% dan tanpa margin. Periksa hasil fisik; sesuaikan juga ukuran kertas pada driver jika terpotong.",
     ],
     link: { to: "/app/hardware", label: "Atur Printer & Perangkat" },
   },

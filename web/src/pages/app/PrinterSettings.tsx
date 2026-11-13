@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { addDoc, collection, doc, getDocs, serverTimestamp, updateDoc } from "firebase/firestore";
 import { useAuth } from "../../lib/auth";
 import { db } from "../../lib/firebase";
+import { printReceipt } from "../../lib/receiptActions";
 
 type PrinterProfile = {
   id: string;
@@ -81,17 +82,36 @@ export function PrinterSettings() {
   }
 
   function testPrint(profile: PrinterProfile) {
-    const width = profile.paperWidth === "58mm" ? 58 : 80;
-    const paperContent = profile.paperWidth === "58mm" ? 48 : 72;
-    const printWindow = window.open("", "_blank", "width=400,height=500");
-    if (!printWindow) {
-      setError("Pop-up diblokir. Izinkan pop-up untuk melakukan tes cetak.");
-      return;
+    setError(null);
+    const receipt = document.createElement("div");
+    receipt.className = "receipt";
+    for (const text of [
+      "TES CETAK NOTA", `Printer: ${profile.name}`, `Kertas: ${profile.paperWidth}`,
+    ]) {
+      const line = document.createElement("p");
+      line.textContent = text;
+      receipt.appendChild(line);
     }
-    printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Tes cetak</title><style>@page{size:${width}mm auto;margin:0}body{font:12px monospace;margin:0}.test{width:${paperContent}mm;margin:auto;padding:4mm;text-align:center}</style></head><body><main class="test"><strong>BATAM FARMA</strong><hr><p id="printer-name"></p><p id="paper-size"></p><hr><p>Printer siap digunakan</p></main><script>window.onload=()=>{window.print();window.close()}</script></body></html>`);
-    printWindow.document.getElementById("printer-name")!.textContent = `Tes printer: ${profile.name}`;
-    printWindow.document.getElementById("paper-size")!.textContent = `Kertas ${profile.paperWidth}`;
-    printWindow.document.close();
+    for (const [label, value] of [
+      ["No", "TRX-123E4567-E89B-42D3-A456-426614174001"],
+      ["Total", "Rp 123.456"],
+    ]) {
+      const row = document.createElement("div");
+      row.className = "row";
+      for (const text of [label, value]) {
+        const cell = document.createElement("span");
+        cell.textContent = text;
+        row.appendChild(cell);
+      }
+      receipt.appendChild(row);
+    }
+    const instructions = document.createElement("p");
+    instructions.textContent = "Periksa ukuran, tepi, dan keterbacaan hasil cetak.";
+    receipt.appendChild(instructions);
+    try { printReceipt(receipt, profile.paperWidth, "TES-PRINTER"); }
+    catch (printError) {
+      setError(printError instanceof Error ? printError.message : "Tes cetak gagal dibuka.");
+    }
   }
 
   return (
@@ -99,10 +119,15 @@ export function PrinterSettings() {
       <header>
         <h1 className="text-2xl font-bold">Printer & Perangkat</h1>
         <p className="text-sm text-ink-500 mt-1">Profil printer dibagikan untuk apotek ini. Printer fisik dipilih melalui dialog cetak perangkat.</p>
+        <p className="text-sm text-ink-500 mt-1">EC-POS58: hubungkan USB, pasang driver yang sesuai di PC kasir, lalu pilih kertas 58 mm di driver dan dialog cetak. Profil ini tidak memasang driver atau memilih printer otomatis.</p>
+        <p className="text-sm text-ink-500 mt-1">Owner juga perlu memilih 58 mm di Profil & Nota agar ukuran awal nota POS sesuai. Tes cetak tidak memastikan printer sudah terhubung sampai hasil fisiknya diperiksa.</p>
       </header>
 
       {error && <p role="alert" className="text-sm text-danger-600">{error}</p>}
 
+      <button type="button" className="btn-secondary text-sm" onClick={() => { setName("EC-POS58 (USB)"); setPaperWidth("58mm"); }}>
+        Isi profil EC-POS58 (USB, 58 mm)
+      </button>
       <form onSubmit={addPrinter} className="card p-4 grid gap-3 md:grid-cols-[1fr_180px_auto] items-end">
         <label className="text-sm font-medium">Nama perangkat
           <input className="input mt-1 w-full" required value={name} onChange={(event) => setName(event.target.value)} placeholder="Contoh: Kasir Utama" />

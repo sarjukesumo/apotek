@@ -45,9 +45,12 @@ export function printReceipt(node: HTMLElement, paper: "58mm" | "80mm", transact
     @page { size: ${pdf ? "A4 portrait" : "auto"}; margin: ${pdf ? "12mm" : "0"}; }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; color: #000; background: #fff; font-family: 'Courier New', monospace; font-size: 11px; line-height: 1.35; }
-    .receipt { width: ${pdf ? 72 : paper === "58mm" ? 48 : 72}mm; margin: 0 auto; padding: 3mm 2mm; }
+    .receipt { width: ${pdf ? 72 : paper === "58mm" ? 48 : 72}mm; margin: 0 auto; padding: 3mm 2mm; overflow-wrap: anywhere; }
+    .receipt, .receipt * { color: #000 !important; }
     .receipt img { display: block; max-width: 24mm; max-height: 10mm; object-fit: contain; margin: 0 auto 1mm; }
-    .row { display: flex; justify-content: space-between; gap: 4px; }
+    .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 4px; }
+    .row > :first-child { flex-shrink: 0; }
+    .row > :last-child { min-width: 0; overflow-wrap: anywhere; text-align: right; }
     .item { break-inside: avoid; }
     .noprint { margin: 12px auto; max-width: 440px; padding: 12px; font: 14px sans-serif; text-align: center; }
     @media print { .noprint { display: none !important; } }
@@ -57,7 +60,7 @@ export function printReceipt(node: HTMLElement, paper: "58mm" | "80mm", transact
   instructions.className = "noprint";
   instructions.textContent = pdf
     ? 'Pilih tujuan "Save as PDF / Simpan sebagai PDF" pada dialog cetak, kertas A4, lalu Simpan. File tidak tersimpan otomatis.'
-    : `Pilih printer dan kertas ${paper}.`;
+    : `Pilih printer di dialog cetak, kertas ${paper}, skala 100%, dan margin tidak ada. Pastikan ukuran kertas juga diatur pada driver printer.`;
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = pdf ? "Print / Simpan PDF" : "Cetak ulang";

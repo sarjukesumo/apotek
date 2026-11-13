@@ -234,7 +234,7 @@ export function PharmacySettings() {
         <div className="grid md:grid-cols-2 gap-3">
           <Field label="Ukuran kertas">
             <select className="input w-full" value={form.paperWidth} onChange={(event) => update("paperWidth", event.target.value as SettingsForm["paperWidth"])}>
-              <option value="58mm">Thermal 58 mm</option>
+              <option value="58mm">Thermal 58 mm (EC-POS58)</option>
               <option value="80mm">Thermal 80 mm</option>
             </select>
           </Field>
@@ -255,7 +255,7 @@ export function PharmacySettings() {
         <Field label="Batas diskon Kasir (%)">
           <input className="input max-w-36" type="number" min="0" max="100" step="1" value={form.cashierMaxDiscountPct} onChange={(event) => update("cashierMaxDiscountPct", Math.max(0, Math.min(100, Number(event.target.value) || 0)))} />
         </Field>
-        <p className="text-xs text-ink-500">Koneksi printer/scanner dilakukan pada perangkat kasir; ukuran dan format nota memakai setelan apotek ini.</p>
+        <p className="text-xs text-ink-500">Koneksi printer/scanner dilakukan pada perangkat kasir; ukuran dan format nota memakai setelan apotek ini. EC-POS58 menggunakan USB dan kertas 58 mm; pilih juga ukuran tersebut di driver dan dialog cetak browser.</p>
         <div className="rounded border border-surface-200 p-3 font-mono text-xs max-w-xs" style={{ borderTopColor: form.primaryColor, borderTopWidth: 3 }}>
           {form.showLogoOnReceipt && form.logoUrl && <img src={form.logoUrl} alt="" className="h-8 max-w-24 object-contain mx-auto mb-2" />}
           <div className="text-center font-bold">{form.name || "Nama Apotek"}</div>
